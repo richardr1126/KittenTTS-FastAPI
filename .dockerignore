@@ -1,0 +1,15 @@
+.venv
+model_cache
+__pycache__
+.git
+.github
+Dockerfile*
+docker-compose*.yml
+.python-version
+.env
+*.pyc
+*.pyo
+*.pyd
+.db
+.sqlite
+tests/

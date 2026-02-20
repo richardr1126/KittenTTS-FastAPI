@@ -9,7 +9,7 @@ import shutil
 from copy import deepcopy
 from threading import Lock
 from typing import Dict, Any, Optional, List, Tuple
-import torch  # For automatic CUDA/CPU device detection
+import onnxruntime as ort  # For automatic device detection (GPU/CPU)
 from pathlib import Path
 
 # Standard logger setup
@@ -185,29 +185,38 @@ class YamlConfigManager:
 
     def _detect_best_device(self) -> str:
         """
-        Robustly detects the best available device for TTS processing.
-        Tests actual CUDA functionality rather than just checking availability.
+        Robustly detects the best available device for TTS processing using ONNX Runtime.
+        Checks for available execution providers like CUDA or ROCm.
 
         Returns:
-            str: 'cuda' if CUDA is truly functional, 'cpu' otherwise.
+            str: 'cuda' if a GPU provider is available and functional, 'cpu' otherwise.
         """
-        # Test CUDA first as it's generally preferred for ML workloads
-        if torch.cuda.is_available():
-            try:
-                # Actually test CUDA functionality by creating a tensor and moving it to CUDA
-                test_tensor = torch.tensor([1.0])
-                test_tensor = test_tensor.cuda()
-                test_tensor = test_tensor.cpu()  # Clean up
-                logger.info("CUDA test successful. Using CUDA device.")
-                return "cuda"
-            except Exception as e:
-                logger.warning(
-                    f"CUDA is reported as available but failed functionality test: {e}. "
-                    f"This usually means PyTorch was not compiled with CUDA support."
-                )
-
-        logger.info("CUDA not available or functional. Using CPU.")
-        return "cpu"
+        try:
+            available_providers = ort.get_available_providers()
+            logger.debug(f"Available ONNX Runtime providers: {available_providers}")
+            
+            # Check for common GPU providers
+            # CUDAExecutionProvider is for NVIDIA GPUs, ROCMExecutionProvider for AMD GPUs.
+            # DirectMLExecutionProvider can also be used on Windows for various GPUs.
+            # CoreMLExecutionProvider is for Apple Silicon (Mac).
+            gpu_providers = [
+                "CUDAExecutionProvider", 
+                "ROCMExecutionProvider", 
+                "DirectMLExecutionProvider", 
+                "CoreMLExecutionProvider"
+            ]
+            
+            for provider in gpu_providers:
+                if provider in available_providers:
+                    logger.info(f"GPU execution provider '{provider}' found. Using GPU.")
+                    return "cuda"
+            
+            logger.info("No supported GPU execution providers found. Using CPU.")
+            return "cpu"
+            
+        except Exception as e:
+            logger.warning(f"Error during ONNX Runtime device detection: {e}. Defaulting to CPU.")
+            return "cpu"
 
     def _prepare_config_for_saving(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
         """

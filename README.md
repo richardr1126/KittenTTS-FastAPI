@@ -68,6 +68,9 @@ The [KittenTTS model](https://github.com/KittenML/KittenTTS) serves as an excell
 git clone https://github.com/richardr1126/KittenTTS-FastAPI.git
 cd KittenTTS-FastAPI
 
+# Workaround for uv lock file issue with kittentts incorrect wheel filename
+export UV_SKIP_WHEEL_FILENAME_CHECK=1
+
 # Sync dependencies and create virtual environment
 uv sync
 
@@ -82,6 +85,7 @@ The server will automatically open your browser to `http://localhost:8005`.
 Raspberry Pi 5 works out-of-the-box with the standard Linux installation. 
 **Installation Steps:**
 ```bash
+export UV_SKIP_WHEEL_FILENAME_CHECK=1
 sudo apt update && sudo apt install -y espeak-ng libsndfile1 ffmpeg python3-pip
 uv sync
 uv run src/server.py

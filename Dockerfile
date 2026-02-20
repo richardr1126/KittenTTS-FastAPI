@@ -42,12 +42,12 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --python 3.13 --frozen --no-install-project --no-dev
 
 # --- Conditionally Install GPU Dependencies ---
-# If the RUNTIME argument is 'nvidia', install the specific GPU packages
-# This mirrors the robust manual installation process.
+# If the RUNTIME argument is 'nvidia', install onnxruntime-gpu.
+# We also explicitly install CUDA versions of torch to override the CPU default.
 RUN if [ "$RUNTIME" = "nvidia" ]; then \
     echo "RUNTIME=nvidia, installing GPU dependencies..."; \
     uv pip install onnxruntime-gpu; \
-    uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121; \
+    uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu121; \
     else \
     echo "RUNTIME=cpu, skipping GPU dependencies."; \
     fi
