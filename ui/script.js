@@ -17,7 +17,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     let availableVoices = [];
 
     let hideGenerationWarning = false;
-    let currentVoice = 'expr-voice-5-m';
+    let currentVoice = 'Jasper';
 
     const IS_LOCAL_FILE = window.location.protocol === 'file:';
     // If you always access the server via localhost
@@ -25,10 +25,9 @@ document.addEventListener('DOMContentLoaded', async function () {
 
     const DEBOUNCE_DELAY_MS = 750;
 
-    // KittenTTS available voices
     const KITTEN_TTS_VOICES = [
-        'expr-voice-2-m', 'expr-voice-2-f', 'expr-voice-3-m', 'expr-voice-3-f',
-        'expr-voice-4-m', 'expr-voice-4-f', 'expr-voice-5-m', 'expr-voice-5-f'
+        'Bella', 'Jasper', 'Luna', 'Bruno',
+        'Rosie', 'Hugo', 'Kiki', 'Leo'
     ];
 
     // --- DOM Element Selectors ---
@@ -208,7 +207,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             appPresets = data.presets || [];
             availableVoices = data.available_voices || KITTEN_TTS_VOICES;
             hideGenerationWarning = currentUiState.hide_generation_warning || false;
-            currentVoice = currentUiState.last_voice || 'expr-voice-5-m';
+            currentVoice = currentUiState.last_voice || 'Jasper';
 
             // This now ONLY sets values. It does NOT attach state-saving listeners.
             initializeApplication();
@@ -284,8 +283,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             const option = document.createElement('option');
             option.value = voice;
             // Format display name
-            const displayName = voice.replace('expr-voice-', 'Voice ').replace('-m', ' (Male)').replace('-f', ' (Female)');
-            option.textContent = displayName;
+            option.textContent = voice;
             voiceSelect.appendChild(option);
         });
 
@@ -297,7 +295,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             voiceSelect.value = lastSelected;
             currentVoice = lastSelected;
         } else {
-            voiceSelect.value = availableVoices || 'expr-voice-5-m';
+            voiceSelect.value = availableVoices.length > 0 ? availableVoices[0] : 'Jasper';
             currentVoice = voiceSelect.value;
         }
     }
@@ -412,7 +410,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         if (playerVoiceSpan) {
             const displayVoice = resultDetails.submittedVoice || currentVoice || '--';
-            playerVoiceSpan.textContent = displayVoice.replace('expr-voice-', 'Voice ').replace('-m', ' (Male)').replace('-f', ' (Female)');
+            playerVoiceSpan.textContent = displayVoice;
         }
         if (playerGenTimeSpan) playerGenTimeSpan.textContent = resultDetails.genTime ? `${resultDetails.genTime}s` : '--s';
 

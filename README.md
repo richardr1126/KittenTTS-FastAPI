@@ -427,7 +427,7 @@ This endpoint offers the most control.
     ```json
     {
       "text": "Hello from the KittenTTS API!",
-      "voice": "expr-voice-5-m",
+      "voice": "Jasper",
       "speed": 1.0,
       "output_format": "mp3",
       "split_text": true,
@@ -446,7 +446,7 @@ Use this for drop-in compatibility with scripts expecting OpenAI's TTS API struc
     {
       "model": "kitten-tts",
       "input": "This is an OpenAI-compatible request.",
-      "voice": "expr-voice-4-f",
+      "voice": "Bella",
       "response_format": "wav",
       "speed": 0.9
     }

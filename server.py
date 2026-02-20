@@ -655,6 +655,22 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.get("/v1/audio/voices", tags=["OpenAI Compatible"])
+async def openai_voices_endpoint():
+    """
+    Returns a list of available voices. 
+    Compatible with some OpenAI-like integrations (e.g. OpenReader).
+    """
+    if not engine.MODEL_LOADED:
+        raise HTTPException(
+            status_code=503,
+            detail="TTS engine model is not currently loaded or available.",
+        )
+    
+    return {"voices": engine.KITTEN_TTS_VOICES}
+
+
+
 # --- Main Execution ---
 if __name__ == "__main__":
     server_host = get_host()

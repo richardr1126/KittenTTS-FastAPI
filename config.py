@@ -34,10 +34,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "server": {
         "host": "0.0.0.0",  # Host address for the server to listen on.
         "port": 8005,  # Port number for the server.
-        "use_ngrok": False,  # Placeholder for ngrok integration (if used).
-        "use_auth": False,  # Placeholder for basic authentication (if used).
-        "auth_username": "user",  # Default username if authentication is enabled.
-        "auth_password": "password",  # Default password if authentication is enabled.
         "log_file_path": str(
             DEFAULT_LOGS_PATH / "tts_server.log"
         ),  # Path to the server log file.
@@ -45,7 +41,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "log_file_backup_count": 5,  # Number of backup log files to keep.
     },
     "model": {  # Updated section for model source configuration
-        "repo_id": "KittenML/kitten-tts-nano-0.1",  # KittenTTS Hugging Face repository ID
+        "repo_id": "KittenML/kitten-tts-nano-0.8-fp32",  # KittenTTS Hugging Face repository ID
     },
     "tts_engine": {
         "device": "auto",  # TTS processing device: 'auto', 'cuda', or 'cpu'.
@@ -69,7 +65,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     },
     "ui_state": {  # Stores user interface preferences and last-used values.
         "last_text": "",  # Last text entered by the user.
-        "last_voice": "expr-voice-5-m",  # Last selected voice.
+        "last_voice": "Jasper",  # Last selected voice.
         "last_chunk_size": 120,  # Last used chunk size for text splitting in UI.
         "last_split_text_enabled": True,  # Whether text splitting was last enabled in UI.
         "hide_chunk_warning": False,  # Flag to hide the chunking warning modal.

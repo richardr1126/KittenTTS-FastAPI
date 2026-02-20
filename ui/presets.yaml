@@ -7,7 +7,7 @@
     The solar system consists of the Sun and the astronomical objects gravitationally bound in orbit around it.
     Mars, often called the Red Planet, is the fourth planet from the Sun. It is a terrestrial planet with a thin atmosphere, having surface features reminiscent both of the impact craters of the Moon and the volcanoes, valleys, deserts, and polar ice caps of Earth.
   params:
-    voice: "expr-voice-2-f"
+    voice: "Bella"
     speed: 1.0
     language: "en"
 
@@ -15,7 +15,7 @@
   text: |
     To be, or not to be, that is the question: whether 'tis nobler in the mind to suffer the slings and arrows of outrageous fortune, or to take arms against a sea of troubles and by opposing end them. To die: to sleep; no more.
   params:
-    voice: "expr-voice-5-f"
+    voice: "Luna"
     speed: 0.9
     language: "en"
 
@@ -23,7 +23,7 @@
   text: |
     Quantum entanglement is a physical phenomenon that occurs when pairs or groups of particles are generated, interact, or share spatial proximity in ways such that the quantum state of each particle cannot be described independently of the state of the others.
   params:
-    voice: "expr-voice-4-m"
+    voice: "Bruno"
     speed: 1.0
     language: "en"
 
@@ -31,7 +31,7 @@
   text: |
     Are you tired of slow, unreliable connections? Upgrade today to Quantum Fiber, the fastest internet in the galaxy! Experience seamless streaming, lag-free gaming, and instant downloads. Call now!
   params:
-    voice: "expr-voice-5-m"
+    voice: "Jasper"
     speed: 1.1
     language: "en"
 
@@ -39,6 +39,6 @@
   text: |
     It was the best of times, it was the worst of times, it was the age of wisdom, it was the age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was the season of Light, it was the season of Darkness, it was the spring of hope, it was the winter of despair, we had everything before us, we had nothing before us, we were all going direct to Heaven, we were all going direct the other way.
   params:
-    voice: "expr-voice-3-f"
+    voice: "Rosie"
     speed: 1.0
     language: "en"

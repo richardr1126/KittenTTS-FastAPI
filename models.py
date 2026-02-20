@@ -27,7 +27,7 @@ class CustomTTSRequest(BaseModel):
 
     voice: str = Field(
         ...,
-        description="Voice identifier (e.g., 'expr-voice-5-m'). Available voices: expr-voice-2-m, expr-voice-2-f, expr-voice-3-m, expr-voice-3-f, expr-voice-4-m, expr-voice-4-f, expr-voice-5-m, expr-voice-5-f",
+        description="Voice identifier (e.g., 'Jasper'). Available voices: Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo",
     )
 
     output_format: Optional[Literal["wav", "opus", "mp3"]] = Field(

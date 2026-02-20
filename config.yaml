@@ -20,7 +20,7 @@ server:
    
   # --- Logging Configuration ---
   # Path to the server's log file, relative to the project root directory.
-  log_file_path: logs\tts_server.log
+  log_file_path: logs/tts_server.log
   
   # The maximum size of a single log file in megabytes (MB) before it is rotated.
   # This prevents log files from growing indefinitely.
@@ -35,7 +35,7 @@ server:
 model:
   # The repository ID of the model on the Hugging Face Hub.
   # You can change this to use a different compatible ONNX model in the future.
-  repo_id: KittenML/kitten-tts-nano-0.1
+  repo_id: KittenML/kitten-tts-nano-0.8-fp32
 
 # --- TTS Engine Settings ---
 # Configures the hardware and core settings for the speech synthesis engine.
@@ -97,7 +97,7 @@ ui_state:
 
     '
   # The ID of the last voice you selected from the dropdown.
-  last_voice: expr-voice-2-m
+  last_voice: Jasper
   # The last value you set for the "Chunk Size" slider, used for large text processing.
   last_chunk_size: 200
   
@@ -108,7 +108,7 @@ ui_state:
   hide_chunk_warning: false
   
   # Set to 'true' to permanently hide the one-time general notice about generation quality.
-  hide_generation_warning: false
+  hide_generation_warning: true
   
   # The theme for the web interface. Options: "dark", "light".
   theme: dark
