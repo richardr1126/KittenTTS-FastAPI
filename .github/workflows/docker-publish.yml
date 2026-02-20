@@ -1,110 +1,120 @@
-name: Create and publish Docker images
+name: Build and Publish KittenTTS Docker Images
 
 on:
   push:
+    branches:
+      - main
     tags:
       - 'v*.*.*'
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
-    inputs:
-      use_latest_tag:
-        description: 'Tag as latest instead of branch name'
-        required: false
-        type: boolean
-        default: false
 
 env:
   REGISTRY: ghcr.io
-
-permissions:
-  contents: read
+  IMAGE_NAME: kittentts-fastapi
 
 jobs:
   prepare:
     runs-on: ubuntu-24.04
     outputs:
-      image_name_gpu: ${{ steps.image-name.outputs.image_name_gpu }}
-      image_name_cpu: ${{ steps.image-name.outputs.image_name_cpu }}
-      tags_gpu: ${{ steps.meta-gpu.outputs.tags }}
-      labels_gpu: ${{ steps.meta-gpu.outputs.labels }}
-      tags_cpu: ${{ steps.meta-cpu.outputs.tags }}
-      labels_cpu: ${{ steps.meta-cpu.outputs.labels }}
+      repo_owner: ${{ steps.repo_owner.outputs.lowercase }}
+      tags-gpu: ${{ steps.meta-gpu.outputs.tags }}
+      labels-gpu: ${{ steps.meta-gpu.outputs.labels }}
+      tags-cpu: ${{ steps.meta-cpu.outputs.tags }}
+      labels-cpu: ${{ steps.meta-cpu.outputs.labels }}
     steps:
-      - name: Compute Docker image names
-        id: image-name
-        run: |
-          owner="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "image_name_gpu=${owner}/kittentts-fastapi-gpu" >> "$GITHUB_OUTPUT"
-          echo "image_name_cpu=${owner}/kittentts-fastapi-cpu" >> "$GITHUB_OUTPUT"
+      - name: Lowercase repo owner
+        id: repo_owner
+        run: echo "lowercase=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
 
-      - name: Extract metadata (tags, labels) for GPU Docker
+      - name: Extract metadata for GPU Docker
         id: meta-gpu
         uses: docker/metadata-action@v5
         with:
           images: |
-             ${{ env.REGISTRY }}/${{ steps.image-name.outputs.image_name_gpu }}
-          tags: |
-            type=raw,value=latest,enable=${{ (github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref, '-pre')) || (github.event_name == 'workflow_dispatch' && inputs.use_latest_tag == true) }},priority=1000
-            type=semver,pattern={{version}}
-            type=ref,event=tag
-            type=ref,event=branch,enable=${{ github.event_name == 'push' && github.ref_type == 'branch' }}
-            type=ref,event=pr
+            ${{ env.REGISTRY }}/${{ steps.repo_owner.outputs.lowercase }}/${{ env.IMAGE_NAME }}-gpu
 
-      - name: Extract metadata (tags, labels) for CPU Docker
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=KittenTTS-FastAPI - Real-time TTS processing service (GPU)
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.title=KittenTTS-FastAPI (GPU)
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
+
+      - name: Extract metadata for CPU Docker
         id: meta-cpu
         uses: docker/metadata-action@v5
         with:
           images: |
-             ${{ env.REGISTRY }}/${{ steps.image-name.outputs.image_name_cpu }}
+            ${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}
+            ${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-cpu
           tags: |
-            type=raw,value=latest,enable=${{ (github.event_name == 'push' && github.ref_type == 'tag' && !contains(github.ref, '-pre')) || (github.event_name == 'workflow_dispatch' && inputs.use_latest_tag == true) }},priority=1000
-            type=semver,pattern={{version}}
-            type=ref,event=tag
-            type=ref,event=branch,enable=${{ github.event_name == 'push' && github.ref_type == 'branch' }}
+            type=ref,event=branch
             type=ref,event=pr
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=sha,prefix={{branch}}-
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.description=KittenTTS-FastAPI - Real-time TTS processing service (CPU)
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.title=KittenTTS-FastAPI (CPU)
+            org.opencontainers.image.vendor=${{ github.repository_owner }}
 
-  build_gpu:
+  build-gpu-amd64:
     needs: prepare
     runs-on: ubuntu-24.04
     permissions:
-      actions: write
       contents: read
       packages: write
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push GPU Docker image (amd64)
-        id: build_gpu
+      - name: Build and push Docker image (GPU AMD64)
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile
+          file: ./Dockerfile
           platforms: linux/amd64
-          labels: ${{ needs.prepare.outputs.labels_gpu }}
+          build-args: |
+            RUNTIME=nvidia
+            BASE_IMAGE=nvidia/cuda:12.1.1-runtime-ubuntu22.04
+          labels: ${{ needs.prepare.outputs.labels-gpu }}
           cache-from: type=gha,scope=gpu-amd64
           cache-to: type=gha,mode=max,scope=gpu-amd64
           provenance: false
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_name_gpu }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-gpu,push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
 
       - name: Export digest
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests-gpu
-          digest="${{ steps.build_gpu.outputs.digest }}"
+          digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests-gpu/${digest#sha256:}"
 
       - name: Upload digest
@@ -112,85 +122,124 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: digests-gpu-amd64
-          path: /tmp/digests-gpu
+          path: /tmp/digests-gpu/*
           if-no-files-found: error
           retention-days: 1
 
-
-  build_cpu:
+  build-cpu-amd64:
     needs: prepare
-    runs-on: ${{ matrix.runner }}
+    runs-on: ubuntu-24.04
     permissions:
-      actions: write
       contents: read
       packages: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - arch: amd64
-            platform: linux/amd64
-            runner: ubuntu-24.04
-          - arch: arm64
-            platform: linux/arm64
-            runner: ubuntu-24.04-arm
-
+    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push CPU Docker image (${{ matrix.arch }})
-        id: build_cpu
+      - name: Build and push Docker image (CPU AMD64)
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
-          file: Dockerfile.cpu
-          platforms: ${{ matrix.platform }}
-          labels: ${{ needs.prepare.outputs.labels_cpu }}
-          cache-from: type=gha,scope=cpu-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=cpu-${{ matrix.arch }}
+          file: ./Dockerfile
+          platforms: linux/amd64
+          build-args: |
+            RUNTIME=cpu
+            BASE_IMAGE=python:3.13-slim
+          labels: ${{ needs.prepare.outputs.labels-cpu }}
+          cache-from: type=gha,scope=cpu-amd64
+          cache-to: type=gha,mode=max,scope=cpu-amd64
           provenance: false
-          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_name_cpu }},push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-cpu,push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
 
       - name: Export digest
         if: github.event_name != 'pull_request'
         run: |
           mkdir -p /tmp/digests-cpu
-          digest="${{ steps.build_cpu.outputs.digest }}"
+          digest="${{ steps.build.outputs.digest }}"
           touch "/tmp/digests-cpu/${digest#sha256:}"
 
       - name: Upload digest
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
-          name: digests-cpu-${{ matrix.arch }}
-          path: /tmp/digests-cpu
+          name: digests-cpu-amd64
+          path: /tmp/digests-cpu/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build-cpu-arm64:
+    needs: prepare
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image (CPU ARM64)
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: linux/arm64
+          build-args: |
+            RUNTIME=cpu
+            BASE_IMAGE=python:3.13-slim
+          labels: ${{ needs.prepare.outputs.labels-cpu }}
+          cache-from: type=gha,scope=cpu-arm64
+          cache-to: type=gha,mode=max,scope=cpu-arm64
+          provenance: false
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-cpu,push-by-digest=true,name-canonical=true,push=${{ github.event_name != 'pull_request' }}
+
+      - name: Export digest
+        if: github.event_name != 'pull_request'
+        run: |
+          mkdir -p /tmp/digests-cpu
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests-cpu/${digest#sha256:}"
+
+      - name: Upload digest
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-cpu-arm64
+          path: /tmp/digests-cpu/*
           if-no-files-found: error
           retention-days: 1
 
   merge:
-    if: github.event_name != 'pull_request'
-    needs: [prepare, build_gpu, build_cpu]
+    needs: [prepare, build-gpu-amd64, build-cpu-amd64, build-cpu-arm64]
     runs-on: ubuntu-24.04
+    if: github.event_name != 'pull_request'
     permissions:
-      actions: read
       contents: read
       packages: write
-
+    
     steps:
       - name: Download GPU digests
         uses: actions/download-artifact@v4
@@ -219,32 +268,54 @@ jobs:
       - name: Create GPU manifest list and push
         working-directory: /tmp/digests-gpu
         run: |
+          # Push to -gpu name
           docker buildx imagetools create \
             $(echo "$TAGS" | xargs -I {} echo -t {}) \
-            $(printf '${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_name_gpu }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-gpu@sha256:%s ' *)
         env:
-          TAGS: ${{ needs.prepare.outputs.tags_gpu }}
+          TAGS: ${{ needs.prepare.outputs.tags-gpu }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
 
       - name: Create CPU manifest list and push
         working-directory: /tmp/digests-cpu
         run: |
           docker buildx imagetools create \
             $(echo "$TAGS" | xargs -I {} echo -t {}) \
-            $(printf '${{ env.REGISTRY }}/${{ needs.prepare.outputs.image_name_cpu }}@sha256:%s ' *)
+            $(printf '${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-cpu@sha256:%s ' *)
         env:
-          TAGS: ${{ needs.prepare.outputs.tags_cpu }}
+          TAGS: ${{ needs.prepare.outputs.tags-cpu }}
 
-      - name: Output build information
+      - name: Create or update package visibility
         run: |
-          echo "✅ Docker images built and pushed successfully!"
-          echo "🐋 GPU Images:"
-          echo '${{ needs.prepare.outputs.tags_gpu }}' | sed 's/^/  - /'
-          echo "🐋 CPU Images:"
-          echo '${{ needs.prepare.outputs.tags_cpu }}' | sed 's/^/  - /'
-          echo "📝 Event: ${{ github.event_name }}"
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            echo "📝 Triggered by manual workflow dispatch on branch: ${{ github.ref_name }}"
-            echo "📝 use_latest_tag: ${{ inputs.use_latest_tag }}"
-          else
-            echo "📝 Triggered by: ${{ github.event_name }}"
-          fi
+          # Set packages to public visibility
+          for pkg in "${{ env.IMAGE_NAME }}" "${{ env.IMAGE_NAME }}-gpu" "${{ env.IMAGE_NAME }}-cpu"; do
+            gh api \
+              --method PATCH \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              /user/packages/container/$pkg \
+              -f visibility=public || echo "Package $pkg visibility already set or package doesn't exist yet"
+          done
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Inspect image
+        run: |
+          docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}:latest
+
+      - name: Output image details
+        run: |
+          echo "## 🚀 Docker Images Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Main Image (CPU):** \`${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**GPU Image:** \`${{ env.REGISTRY }}/${{ needs.prepare.outputs.repo_owner }}/${{ env.IMAGE_NAME }}-gpu\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Platforms:**" >> $GITHUB_STEP_SUMMARY
+          echo "- GPU: linux/amd64" >> $GITHUB_STEP_SUMMARY
+          echo "- CPU: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Tags Summary:**" >> $GITHUB_STEP_SUMMARY
+          echo "### GPU Tags" >> $GITHUB_STEP_SUMMARY
+          echo '${{ needs.prepare.outputs.tags-gpu }}' | sed 's/^/- `/' | sed 's/$/`/' >> $GITHUB_STEP_SUMMARY
+          echo "### CPU Tags" >> $GITHUB_STEP_SUMMARY
+          echo '${{ needs.prepare.outputs.tags-cpu }}' | sed 's/^/- `/' | sed 's/$/`/' >> $GITHUB_STEP_SUMMARY

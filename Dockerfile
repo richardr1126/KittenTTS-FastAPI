@@ -1,9 +1,9 @@
-# Use the official NVIDIA CUDA runtime as the base image
-# This provides the necessary CUDA libraries for GPU support and works for CPU too.
-FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
+# Use a build-time argument for the base image
+ARG BASE_IMAGE=python:3.13-slim
+FROM ${BASE_IMAGE}
 
 # Define a build-time argument to switch between CPU and GPU installation
-ARG RUNTIME=nvidia
+ARG RUNTIME=cpu
 
 # Set environment variables for Python and Hugging Face
 ENV PYTHONDONTWRITEBYTECODE=1
@@ -12,22 +12,24 @@ ENV DEBIAN_FRONTEND=noninteractive
 # Set the Hugging Face home directory to a path inside the container for better caching
 ENV HF_HOME=/app/model_cache
 
+# Set uv environment variables for dependency installation
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_SKIP_WHEEL_FILENAME_CHECK=1
+
 # Install system dependencies required for the application
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1 \
     ffmpeg \
     espeak-ng \
+    curl \
+    ca-certificates \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
 
 # Set the working directory inside the container
 WORKDIR /app
-
-# Set uv environment variables for dependency installation
-ENV UV_COMPILE_BYTECODE=1
-ENV UV_SKIP_WHEEL_FILENAME_CHECK=1
 
 # Install uv from pre-built image
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
@@ -42,8 +44,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --python 3.13 --frozen --no-install-project --no-dev
 
 # --- Conditionally Install GPU Dependencies ---
-# If the RUNTIME argument is 'nvidia', install onnxruntime-gpu.
-# We also explicitly install CUDA versions of torch to override the CPU default.
+# If the RUNTIME argument is 'nvidia', install onnxruntime-gpu and CUDA torch.
 RUN if [ "$RUNTIME" = "nvidia" ]; then \
     echo "RUNTIME=nvidia, installing GPU dependencies..."; \
     uv pip install onnxruntime-gpu; \
@@ -57,7 +58,7 @@ COPY . .
 
 RUN mkdir -p model_cache
 
-# Expose the port the application will run on (aligned with docker-compose.yml)
+# Expose the port the application will run on
 EXPOSE 8005
 
 # Place the virtual environment in the PATH to use it for execution
