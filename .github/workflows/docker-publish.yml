@@ -50,7 +50,6 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-cpu
           tags: |
             type=ref,event=branch
@@ -260,6 +259,18 @@ jobs:
         env:
           TAGS: ${{ needs.prepare.outputs.tags-gpu }}
 
+      - name: Set package visibility
+        run: |
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /user/packages/container/${{ env.IMAGE_NAME }}-gpu \
+            -f visibility=public || echo "GPU visibility already set"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+
   merge-cpu:
     needs: [prepare, build-cpu-amd64, build-cpu-arm64]
     runs-on: ubuntu-24.04
@@ -294,29 +305,14 @@ jobs:
         env:
           TAGS: ${{ needs.prepare.outputs.tags-cpu }}
 
-  finalize:
-    needs: [merge-gpu, merge-cpu]
-    runs-on: ubuntu-24.04
-    if: github.event_name != 'pull_request'
-    steps:
-      - name: Create or update package visibility
+      - name: Set package visibility
         run: |
-          for pkg in "${{ env.IMAGE_NAME }}" "${{ env.IMAGE_NAME }}-gpu" "${{ env.IMAGE_NAME }}-cpu"; do
-            gh api \
-              --method PATCH \
-              -H "Accept: application/vnd.github+json" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              /user/packages/container/$pkg \
-              -f visibility=public || echo "Package $pkg visibility already set"
-          done
+          gh api \
+            --method PATCH \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            /user/packages/container/${{ env.IMAGE_NAME }}-cpu \
+            -f visibility=public || echo "CPU visibility already set"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-
-      - name: Output build information
-        run: |
-          echo "✅ Docker images built and pushed successfully!"
-          echo "🐋 Published to:"
-          echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }} (CPU)"
-          echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-cpu (CPU)"
-          echo "- ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-gpu (GPU)"
