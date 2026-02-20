@@ -2,11 +2,8 @@ name: Create and publish Docker images
 
 on:
   push:
-    branches: [ "main", "master" ]
     tags:
       - 'v*.*.*'
-  pull_request:
-    branches: [ "main", "master" ]
   workflow_dispatch:
     inputs:
       use_latest_tag:
