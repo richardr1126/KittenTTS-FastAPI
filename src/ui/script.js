@@ -580,7 +580,7 @@ document.addEventListener('DOMContentLoaded', async function () {
         const fieldsToDisplay = {
             "server.host": currentConfig.server?.host, "server.port": currentConfig.server?.port,
             "tts_engine.device": currentConfig.tts_engine?.device, "model.repo_id": currentConfig.model?.repo_id,
-            "paths.model_cache": currentConfig.paths?.model_cache, "paths.output": currentConfig.paths?.output,
+            "paths.model_cache": currentConfig.paths?.model_cache,
             "audio_output.format": currentConfig.audio_output?.format, "audio_output.sample_rate": currentConfig.audio_output?.sample_rate
         };
         for (const name in fieldsToDisplay) {

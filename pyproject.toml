@@ -1,0 +1,29 @@
+[project]
+name = "kittentts-fastapi"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles>=25.1.0",
+    "fastapi>=0.129.0",
+    "hf-transfer>=0.1.9",
+    "inflect>=7.5.0",
+    "jinja2>=3.1.6",
+    "kittentts",
+    "librosa>=0.11.0",
+    "praat-parselmouth>=0.4.7",
+    "pydub>=0.25.1",
+    "python-multipart>=0.0.22",
+    "pyyaml>=6.0.3",
+    "requests>=2.32.5",
+    "torch>=2.10.0",
+    "torchaudio>=2.10.0",
+    "tqdm>=4.67.3",
+    "unidecode>=1.4.0",
+    "uvicorn[standard]>=0.41.0",
+    "watchdog>=6.0.0",
+]
+
+[tool.uv.sources]
+kittentts = { url = "https://github.com/KittenML/KittenTTS/releases/download/0.8/kittentts-0.8.0-py3-none-any.whl" }

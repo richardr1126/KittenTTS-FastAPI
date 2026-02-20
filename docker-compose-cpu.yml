@@ -11,17 +11,10 @@ services:
     volumes:
       # Mount local config file for persistence
       - ./config.yaml:/app/config.yaml
-      # Mount local directories for persistent app data
-      - ./outputs:/app/outputs
-      - ./logs:/app/logs
-      # Named volume for Hugging Face model cache to persist across container rebuilds
-      - hf_cache:/app/hf_cache
+
     
     restart: unless-stopped
     environment:
       # Enable faster Hugging Face downloads inside the container
       - HF_HUB_ENABLE_HF_TRANSFER=1
 
-# Define the named volume for the Hugging Face cache
-volumes:
-  hf_cache:

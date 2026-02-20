@@ -10,47 +10,44 @@ ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 # Set the Hugging Face home directory to a path inside the container for better caching
-ENV HF_HOME=/app/hf_cache
+ENV HF_HOME=/app/model_cache
 
 # Install system dependencies required for the application
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1 \
     ffmpeg \
-    git \
     espeak-ng \
-    python3.10 \
-    python3.10-dev \
-    python3-pip \
-    cmake \
-    pkg-config \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.10 999 \
-    && update-alternatives --config python3 && ln -s /usr/bin/python3 /usr/bin/python
-
-RUN pip install --upgrade pip
 
 # Set the working directory inside the container
 WORKDIR /app
 
-# Copy requirements files first to leverage Docker's layer caching
-COPY requirements.txt .
-COPY requirements-nvidia.txt .
+# Set uv environment variables for dependency installation
+ENV UV_COMPILE_BYTECODE=1
+ENV UV_SKIP_WHEEL_FILENAME_CHECK=1
 
-# Upgrade pip and install the base Python dependencies from requirements.txt
-RUN pip install --no-cache-dir --upgrade pip
-RUN pip install --no-cache-dir -r requirements.txt
+# Install uv from pre-built image
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
+# Use uv to fetch Python 3.13
+RUN uv python install 3.13
+
+# Copy dependency files first to leverage Docker's layer caching
+COPY pyproject.toml uv.lock ./
+
+# Sync the dependencies in the virtual environment
+RUN uv sync --python 3.13 --frozen --no-install-project --no-dev
 
 # --- Conditionally Install GPU Dependencies ---
 # If the RUNTIME argument is 'nvidia', install the specific GPU packages
 # This mirrors the robust manual installation process.
 RUN if [ "$RUNTIME" = "nvidia" ]; then \
     echo "RUNTIME=nvidia, installing GPU dependencies..."; \
-    pip install --no-cache-dir onnxruntime-gpu; \
-    pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cu121; \
-    pip install --no-cache-dir -r requirements-nvidia.txt; \
+    uv pip install onnxruntime-gpu; \
+    uv pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu121; \
     else \
     echo "RUNTIME=cpu, skipping GPU dependencies."; \
     fi
@@ -58,11 +55,13 @@ RUN if [ "$RUNTIME" = "nvidia" ]; then \
 # Copy the rest of the application code into the container
 COPY . .
 
-# Create required directories for the application data
-RUN mkdir -p model_cache outputs logs hf_cache
+RUN mkdir -p model_cache
 
 # Expose the port the application will run on (aligned with docker-compose.yml)
 EXPOSE 8005
 
+# Place the virtual environment in the PATH to use it for execution
+ENV PATH="/app/.venv/bin:$PATH"
+
 # The command to run when the container starts
-CMD ["python", "server.py"]
+CMD ["python", "src/server.py"]

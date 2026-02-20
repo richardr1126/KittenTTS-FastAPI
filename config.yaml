@@ -17,18 +17,6 @@ server:
   # The network port the server will run on.
   # If you get a "port already in use" error, change this to another number (e.g., 8006).
   port: 8005
-   
-  # --- Logging Configuration ---
-  # Path to the server's log file, relative to the project root directory.
-  log_file_path: logs/tts_server.log
-  
-  # The maximum size of a single log file in megabytes (MB) before it is rotated.
-  # This prevents log files from growing indefinitely.
-  log_file_max_size_mb: 10
-  
-  # The number of old log files to keep as backups.
-  # For example, if this is 5, you will have 'tts_server.log' and up to 5 older backups.
-  log_file_backup_count: 5
 
 # --- Model Settings ---
 # Specifies the core AI model to be used by the TTS engine.

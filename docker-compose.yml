@@ -11,11 +11,7 @@ services:
     volumes:
       # Mount local config file for persistence
       - ./config.yaml:/app/config.yaml
-      # Mount local directories for persistent app data
-      - ./outputs:/app/outputs
-      - ./logs:/app/logs
-      # Named volume for Hugging Face model cache to persist across container rebuilds
-      - hf_cache:/app/hf_cache
+
     
     # --- GPU Support (NVIDIA) ---
     # The 'deploy' key is the modern way to request GPU resources.
@@ -42,6 +38,3 @@ services:
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
 
-# Define the named volume for the Hugging Face cache
-volumes:
-  hf_cache:

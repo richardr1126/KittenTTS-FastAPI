@@ -6,7 +6,6 @@
 import os
 import io
 import logging
-import logging.handlers  # For RotatingFileHandler
 import shutil
 import time
 import uuid
@@ -42,8 +41,6 @@ from config import (
     config_manager,
     get_host,
     get_port,
-    get_log_file_path,
-    get_output_path,
     get_ui_title,
     get_gen_default_speed,
     get_gen_default_language,
@@ -72,24 +69,11 @@ class OpenAISpeechRequest(BaseModel):
     seed: Optional[int] = None
 
 
-# --- Logging Configuration ---
-log_file_path_obj = get_log_file_path()
-log_file_max_size_mb = config_manager.get_int("server.log_file_max_size_mb", 10)
-log_backup_count = config_manager.get_int("server.log_file_backup_count", 5)
-
-log_file_path_obj.parent.mkdir(parents=True, exist_ok=True)
-
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
     handlers=[
-        logging.handlers.RotatingFileHandler(
-            str(log_file_path_obj),
-            maxBytes=log_file_max_size_mb * 1024 * 1024,
-            backupCount=log_backup_count,
-            encoding="utf-8",
-        ),
         logging.StreamHandler(),
     ],
 )
@@ -128,10 +112,9 @@ async def lifespan(app: FastAPI):
     """Manages application startup and shutdown events."""
     logger.info("TTS Server: Initializing application...")
     try:
-        logger.info(f"Configuration loaded. Log file at: {get_log_file_path()}")
+        logger.info("Configuration loaded successfully.")
 
         paths_to_ensure = [
-            get_output_path(),
             Path("ui"),
             config_manager.get_path(
                 "paths.model_cache", "./model_cache", ensure_absolute=True
@@ -220,19 +203,6 @@ async def get_main_script():
         return FileResponse(script_file)
     raise HTTPException(status_code=404, detail="script.js not found")
 
-
-outputs_static_path = get_output_path(ensure_absolute=True)
-try:
-    app.mount(
-        "/outputs",
-        StaticFiles(directory=str(outputs_static_path)),
-        name="generated_outputs",
-    )
-except RuntimeError as e_mount_outputs:
-    logger.error(
-        f"Failed to mount /outputs directory '{outputs_static_path}': {e_mount_outputs}. "
-        "Output files may not be accessible via URL."
-    )
 
 templates = Jinja2Templates(directory=str(ui_static_path))
 
