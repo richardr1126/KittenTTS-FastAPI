@@ -14,8 +14,6 @@ import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional, List, Dict, Any, Literal
-import webbrowser  # For automatic browser opening
-import threading  # For automatic browser opening
 
 from fastapi import (
     FastAPI,
@@ -47,6 +45,7 @@ from config import (
     get_audio_sample_rate,
     get_full_config_for_template,
     get_audio_output_format,
+    PROJECT_ROOT,
 )
 
 import engine  # TTS Engine interface
@@ -81,30 +80,22 @@ logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
-# --- Global Variables & Application Setup ---
-startup_complete_event = threading.Event()  # For coordinating browser opening
+# --- Static Files and HTML Templates Configuration ---
+ui_static_path = Path(__file__).parent / "ui"
 
 
-def _delayed_browser_open(host: str, port: int):
-    """
-    Waits for the startup_complete_event, then opens the web browser
-    to the server's main page after a short delay.
-    """
-    try:
-        startup_complete_event.wait(timeout=30)
-        if not startup_complete_event.is_set():
-            logger.warning(
-                "Server startup did not signal completion within timeout. Browser will not be opened automatically."
-            )
-            return
-
-        time.sleep(1.5)
-        display_host = "localhost" if host == "0.0.0.0" else host
-        browser_url = f"http://{display_host}:{port}/"
-        logger.info(f"Attempting to open web browser to: {browser_url}")
-        webbrowser.open(browser_url)
-    except Exception as e:
-        logger.error(f"Failed to open browser automatically: {e}", exc_info=True)
+def _log_access_urls(host: str, port: int):
+    """Logs a readable startup summary with the UI and docs URLs."""
+    display_host = "localhost" if host == "0.0.0.0" else host
+    base_url = f"http://{display_host}:{port}"
+    logger.info("")
+    logger.info("========================================")
+    logger.info("  Kitten TTS Server is ready")
+    logger.info("  Visit UI:   %s/", base_url)
+    logger.info("  API Docs:   %s/docs", base_url)
+    if display_host != host:
+        logger.info("  Listening:  http://%s:%s", host, port)
+    logger.info("========================================")
 
 
 @asynccontextmanager
@@ -115,9 +106,9 @@ async def lifespan(app: FastAPI):
         logger.info("Configuration loaded successfully.")
 
         paths_to_ensure = [
-            Path("ui"),
+            ui_static_path,
             config_manager.get_path(
-                "paths.model_cache", "./model_cache", ensure_absolute=True
+                "paths.model_cache", str(PROJECT_ROOT / "model_cache"), ensure_absolute=True
             ),
         ]
         for p in paths_to_ensure:
@@ -129,22 +120,15 @@ async def lifespan(app: FastAPI):
             )
         else:
             logger.info("TTS Model loaded successfully via engine.")
-            host_address = get_host()
-            server_port = get_port()
-            browser_thread = threading.Thread(
-                target=lambda: _delayed_browser_open(host_address, server_port),
-                daemon=True,
-            )
-            browser_thread.start()
+
+        _log_access_urls(get_host(), get_port())
 
         logger.info("Application startup sequence complete.")
-        startup_complete_event.set()
         yield
     except Exception as e_startup:
         logger.error(
             f"FATAL ERROR during application startup: {e_startup}", exc_info=True
         )
-        startup_complete_event.set()
         yield
     finally:
         logger.info("TTS Server: Application shutdown sequence initiated...")
@@ -159,6 +143,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- Static Files mounting ---
+if ui_static_path.is_dir():
+    app.mount("/ui", StaticFiles(directory=ui_static_path), name="ui_static_assets")
+else:
+    logger.warning(
+        f"UI static assets directory not found at '{ui_static_path}'. UI may not load correctly."
+    )
+
 # --- CORS Middleware ---
 app.add_middleware(
     CORSMiddleware,
@@ -168,14 +160,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Static Files and HTML Templates ---
-ui_static_path = Path(__file__).parent / "ui"
-if ui_static_path.is_dir():
-    app.mount("/ui", StaticFiles(directory=ui_static_path), name="ui_static_assets")
-else:
-    logger.warning(
-        f"UI static assets directory not found at '{ui_static_path}'. UI may not load correctly."
-    )
+# --- Initialized above lifespan ---
 
 # This will serve files from 'ui_static_path/vendor' when requests come to '/vendor/*'
 if (ui_static_path / "vendor").is_dir():
@@ -646,11 +631,8 @@ if __name__ == "__main__":
     server_host = get_host()
     server_port = get_port()
 
-    logger.info(f"Starting TTS Server directly on http://{server_host}:{server_port}")
-    logger.info(
-        f"API documentation will be available at http://{server_host}:{server_port}/docs"
-    )
-    logger.info(f"Web UI will be available at http://{server_host}:{server_port}/")
+    logger.info(f"Starting TTS Server on http://{server_host}:{server_port}")
+    logger.info("Startup in progress. URL summary will be logged when ready.")
 
     import uvicorn
 

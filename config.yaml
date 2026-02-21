@@ -40,9 +40,6 @@ tts_engine:
 paths:
   # The directory where downloaded model files will be cached.
   model_cache: model_cache
-  
-  # The default directory where generated audio files will be saved.
-  output: outputs
 
 # --- Default Generation Parameters ---
 # Default values for the speech generation process. These can be overridden in the UI or via API calls.
@@ -53,9 +50,6 @@ generation_defaults:
   
   # Default language for the phonemizer. The current model is trained for English.
   language: en
-  
-  # This is a legacy/duplicate setting. Please use the 'speed' setting above.
-  speed_factor: 1.1
 
 # --- Audio Output Settings ---
 # Controls the format and quality of the final audio file.
@@ -93,9 +87,6 @@ ui_state:
   last_split_text_enabled: true
   
   # Set to 'true' to permanently hide the one-time warning about voice consistency when using chunking.
-  hide_chunk_warning: false
-  
-  # Set to 'true' to permanently hide the one-time general notice about generation quality.
   hide_generation_warning: true
   
   # The theme for the web interface. Options: "dark", "light".
@@ -110,16 +101,4 @@ ui:
   # Controls whether the language selection dropdown is visible in the UI.
   # Set to 'false' to hide it if you only ever use one language.
   show_language_select: true
-  
-  # (For future use) If you had hundreds of voices, this would limit the number shown in the dropdown to prevent UI lag.
-  max_predefined_voices_in_dropdown: 50
-
-# --- Debugging Settings ---
-# Tools for troubleshooting and development.
-debug:
-  # If 'true' and text chunking is enabled, the server will save each individual audio chunk
-  # as a separate file in the 'outputs' directory before they are stitched together.
-  # This is extremely useful for diagnosing issues with a specific part of a long text.
-  save_intermediate_audio: false
-
 

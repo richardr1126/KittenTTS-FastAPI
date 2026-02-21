@@ -78,7 +78,7 @@ uv sync
 uv run src/server.py
 ```
 
-The server will automatically open your browser to `http://localhost:8005`.
+After startup, the server logs the exact UI URL to visit (typically `http://localhost:8005`).
 
 ### 🍓 Raspberry Pi 5 Support
 

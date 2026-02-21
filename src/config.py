@@ -16,12 +16,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # --- File Path Constants ---
-# Defines the primary configuration file name.
-CONFIG_FILE_PATH = Path("config.yaml")
+# Defines the primary configuration file name and its location.
+# Since the code is in 'src/', we look for 'config.yaml' in the project root.
+PROJECT_ROOT = Path(__file__).parent.parent
+CONFIG_FILE_PATH = PROJECT_ROOT / "config.yaml"
 
 # --- Default Directory Paths ---
 # These paths are used if not specified in config.yaml and are created if they don't exist
-DEFAULT_MODEL_FILES_PATH = Path("./model_cache")  # For downloaded model files
+DEFAULT_MODEL_FILES_PATH = PROJECT_ROOT / "model_cache"  # For downloaded model files
 
 # --- Default Configuration Structure ---
 # This dictionary defines the complete expected structure of 'config.yaml',
@@ -45,7 +47,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         ),  # Directory for caching or storing downloaded models.
     },
     "generation_defaults": {  # Default parameters for TTS audio generation.
-        "speed": 1.0,  # Controls the speed of the generated speech.
+        "speed": 1.1,  # Controls the speed of the generated speech.
         "language": "en",  # Default language for TTS.
     },
     "audio_output": {  # Settings related to the format of generated audio.
@@ -57,16 +59,12 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "last_voice": "Jasper",  # Last selected voice.
         "last_chunk_size": 120,  # Last used chunk size for text splitting in UI.
         "last_split_text_enabled": True,  # Whether text splitting was last enabled in UI.
-        "hide_chunk_warning": False,  # Flag to hide the chunking warning modal.
         "hide_generation_warning": False,  # Flag to hide the general generation quality notice modal.
         "theme": "dark",  # Default UI theme ('dark' or 'light').
     },
     "ui": {  # General UI display settings.
         "title": "Kitten TTS Server",  # Updated title
         "show_language_select": True,  # Whether to show language selection in the UI.
-    },
-    "debug": {  # Settings for debugging purposes
-        "save_intermediate_audio": False  # If true, save intermediate audio files for debugging
     },
 }
 
