@@ -158,18 +158,11 @@ class EnvConfigManager:
             available_providers = ort.get_available_providers()
             logger.debug("Available ONNX Runtime providers: %s", available_providers)
 
-            gpu_providers = [
-                "CUDAExecutionProvider",
-                "ROCMExecutionProvider",
-                "DirectMLExecutionProvider",
-                "CoreMLExecutionProvider",
-            ]
-            for provider in gpu_providers:
-                if provider in available_providers:
-                    logger.info("GPU execution provider '%s' found. Using GPU.", provider)
-                    return "cuda"
+            if "CUDAExecutionProvider" in available_providers:
+                logger.info("CUDAExecutionProvider found. Using CUDA mode.")
+                return "cuda"
 
-            logger.info("No supported GPU execution provider found. Using CPU.")
+            logger.info("CUDAExecutionProvider not found. Using CPU.")
             return "cpu"
         except Exception as exc:
             logger.warning("Error during ONNX Runtime device detection: %s. Defaulting to CPU.", exc)

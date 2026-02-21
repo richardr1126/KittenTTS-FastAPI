@@ -4,7 +4,7 @@
 
 This project provides a robust, production-ready interface for the ultra-lightweight KittenTTS model and engine. It features a modern Web UI, true GPU acceleration via ONNX Runtime, and full OpenAI API compatibility for easy integration into existing workflows.
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg?style=for-the-badge)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.13+-blue.svg?style=for-the-badge)](https://www.python.org/downloads/)
 [![Framework](https://img.shields.io/badge/Framework-FastAPI-green.svg?style=for-the-badge)](https://fastapi.tiangolo.com/)
 [![Model Source](https://img.shields.io/badge/Model-KittenML/KittenTTS-orange.svg?style=for-the-badge)](https://github.com/KittenML/KittenTTS)
@@ -72,9 +72,7 @@ Supported environment variables:
 
 *   **Python:** 3.13+
 *   **uv:** [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
-*   **eSpeak NG:** Required for phonemization.
-    *   **Linux / Raspberry Pi:** `sudo apt install -y espeak-ng libsndfile1 ffmpeg`
-    *   **macOS/Windows:** Install via your package manager or official installers.
+*   **Audio runtime libs:** `libsndfile` and `ffmpeg` available on system path.
 
 ### 2. Local Setup
 
@@ -83,18 +81,23 @@ Supported environment variables:
 git clone https://github.com/richardr1126/KittenTTS-FastAPI.git
 cd KittenTTS-FastAPI
 
-# Workaround for uv lock file issue with kittentts incorrect wheel filename
-export UV_SKIP_WHEEL_FILENAME_CHECK=1
-
 # Create local environment config
 cp .env.example .env
 
-# Sync dependencies and create virtual environment
+# Sync dependencies and create virtual environment (CPU/default)
 uv sync
 
 # Run the server
 uv run src/server.py
 ```
+
+For NVIDIA GPU local installs, sync the dedicated dependency group:
+
+```bash
+uv sync --group nvidia
+```
+
+Then set `KITTEN_TTS_DEVICE=cuda` in `.env` (or export it in your shell) before starting the server.
 
 After startup, the server logs the exact UI URL to visit (typically `http://localhost:8005/`).
 
@@ -159,7 +162,7 @@ Copy `.env.example` to `.env` and edit values as needed, then restart the server
 
 ## 🛠️ Troubleshooting
 
-*   **Phonemizer / eSpeak Errors**: Ensure you have installed **eSpeak NG** and restarted your terminal.
+*   **Phonemizer Errors**: The app uses bundled `espeakng_loader`; if your platform blocks dynamic libraries, install system `espeak-ng`.
 *   **GPU Not Used**: Ensure `torch.cuda.is_available()` is `True`. The container/host must have NVIDIA drivers and the Container Toolkit.
 *   **Audio Errors on Linux**: Ensure `libsndfile1` is installed (`sudo apt install libsndfile1`).
 
@@ -174,4 +177,4 @@ Copy `.env.example` to `.env` and edit values as needed, then restart the server
 
 ## 📄 License
 
-This project is licensed under the **MIT License**. See the [LICENSE](LICENSE) file for details.
+This project is licensed under the **Apache License 2.0**. See the [LICENSE](LICENSE) file for details. This license choice aligns with the upstream KittenTTS project/model licensing used by this repository.

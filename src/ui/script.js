@@ -54,12 +54,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     const languageSelectContainer = document.getElementById('language-select-container');
     const languageSelect = document.getElementById('language');
     const outputFormatSelect = document.getElementById('output-format');
-    const saveGenDefaultsBtn = document.getElementById('save-gen-defaults-btn');
-    const genDefaultsStatus = document.getElementById('gen-defaults-status');
-    const serverConfigForm = document.getElementById('server-config-form');
-    const saveConfigBtn = document.getElementById('save-config-btn');
-    const restartServerBtn = document.getElementById('restart-server-btn');
-    const configStatus = document.getElementById('config-status');
     const resetSettingsBtn = document.getElementById('reset-settings-btn');
     const audioPlayerContainer = document.getElementById('audio-player-container');
     const loadingOverlay = document.getElementById('loading-overlay');
@@ -182,7 +176,6 @@ document.addEventListener('DOMContentLoaded', async function () {
         loadInitialUiState();
         populateVoices();
         populatePresets();
-        displayServerConfiguration();
         if (languageSelectContainer && currentConfig?.ui?.show_language_select === false) {
             languageSelectContainer.classList.add('hidden');
         }
@@ -573,60 +566,6 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     // --- Configuration Management ---
-    function displayServerConfiguration() {
-        if (!serverConfigForm || !currentConfig || Object.keys(currentConfig).length === 0) return;
-        const fieldsToDisplay = {
-            "server.host": currentConfig.server?.host, "server.port": currentConfig.server?.port,
-            "tts_engine.device": currentConfig.tts_engine?.device, "model.repo_id": currentConfig.model?.repo_id,
-            "paths.model_cache": currentConfig.paths?.model_cache,
-            "audio_output.format": currentConfig.audio_output?.format, "audio_output.sample_rate": currentConfig.audio_output?.sample_rate
-        };
-        for (const name in fieldsToDisplay) {
-            const input = serverConfigForm.querySelector(`input[name="${name}"]`);
-            if (input) {
-                input.value = fieldsToDisplay[name] !== undefined ? fieldsToDisplay[name] : '';
-                input.readOnly = true;
-            }
-        }
-    }
-    function updateConfigStatus(button, statusElem, message, type = 'info', duration = 5000, enableButtonAfter = true) {
-        const statusClasses = { success: 'text-green-600 dark:text-green-400', error: 'text-red-600 dark:text-red-400', warning: 'text-yellow-600 dark:text-yellow-400', info: 'text-indigo-600 dark:text-indigo-400', processing: 'text-yellow-600 dark:text-yellow-400 animate-pulse' };
-        const isProcessing = message.toLowerCase().includes('saving') || message.toLowerCase().includes('restarting') || message.toLowerCase().includes('resetting');
-        const messageType = isProcessing ? 'processing' : type;
-        if (statusElem) {
-            statusElem.textContent = message;
-            statusElem.className = `text-xs ml-2 ${statusClasses[messageType] || statusClasses['info']}`;
-            statusElem.classList.remove('hidden');
-        }
-        if (button) button.disabled = isProcessing || (type === 'error' && !enableButtonAfter) || (type === 'success' && !enableButtonAfter);
-        if (duration > 0) setTimeout(() => { if (statusElem) statusElem.classList.add('hidden'); if (button && enableButtonAfter) button.disabled = false; }, duration);
-        else if (button && enableButtonAfter && !isProcessing) button.disabled = false;
-    }
-
-    if (saveConfigBtn && configStatus) {
-        saveConfigBtn.addEventListener('click', () => {
-            updateConfigStatus(
-                saveConfigBtn,
-                configStatus,
-                'Server settings are read-only in the UI. Edit .env and restart the server.',
-                'info',
-                6000,
-            );
-        });
-    }
-
-    if (saveGenDefaultsBtn && genDefaultsStatus) {
-        saveGenDefaultsBtn.addEventListener('click', () => {
-            updateConfigStatus(
-                saveGenDefaultsBtn,
-                genDefaultsStatus,
-                'Generation defaults now come from .env. Edit .env and restart to change server defaults.',
-                'info',
-                6000,
-            );
-        });
-    }
-
     if (resetSettingsBtn) {
         resetSettingsBtn.addEventListener('click', () => {
             if (!confirm("Clear UI state saved in this browser and reload?")) return;
@@ -634,24 +573,6 @@ document.addEventListener('DOMContentLoaded', async function () {
             localStorage.removeItem('uiTheme');
             showNotification("Local UI state cleared.", "success", 2000);
             setTimeout(() => window.location.reload(), 250);
-        });
-    }
-
-    if (restartServerBtn) {
-        restartServerBtn.addEventListener('click', async () => {
-            if (!confirm("Are you sure you want to restart the server?")) return;
-            updateConfigStatus(restartServerBtn, configStatus, 'Attempting server restart...', 'processing', 0, false);
-            try {
-                const response = await fetch(`${API_BASE_URL}/restart_server`, {
-                    method: 'POST'
-                });
-                const result = await response.json();
-                if (!response.ok) throw new Error(result.detail || 'Server responded with error on restart command');
-                showNotification("Server restart initiated. Please wait a moment for the server to come back online, then refresh the page.", "info", 10000);
-            } catch (error) {
-                showNotification(`Server restart command failed: ${error.message}`, "error");
-                updateConfigStatus(restartServerBtn, configStatus, `Restart failed.`, 'error', 5000, true);
-            }
         });
     }
 

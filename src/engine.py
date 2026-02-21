@@ -41,16 +41,22 @@ def load_model() -> bool:
         model_repo_id = config_manager.get_string(
             "model.repo_id", "KittenML/kitten-tts-nano-0.8-fp32"
         )
+        model_device = config_manager.get_string("tts_engine.device", "auto")
         model_cache_path = config_manager.get_path(
             "paths.model_cache", "./model_cache", ensure_absolute=True
         )
         
         logger.info(f"Loading KittenTTS model from: {model_repo_id}")
+        logger.info(f"Requested inference device: {model_device}")
         logger.info(f"Using cache directory: {model_cache_path}")
 
         # The KittenTTS package handles phonemizer, session, 
-        # downloading, etc internally. Device is picked automatically.
-        tts_model = KittenTTS(model_repo_id, cache_dir=str(model_cache_path))
+        # downloading, etc internally.
+        tts_model = KittenTTS(
+            model_repo_id,
+            cache_dir=str(model_cache_path),
+            device=model_device,
+        )
 
         MODEL_LOADED = True
         logger.info("KittenTTS model loaded successfully.")

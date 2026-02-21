@@ -1,29 +1,27 @@
 [project]
 name = "kittentts-fastapi"
 version = "0.1.0"
-description = "Add your description here"
+description = "A FastAPI application for the KittenTTS text-to-speech system."
 readme = "README.md"
+license = { file = "LICENSE" }
 requires-python = ">=3.13"
 dependencies = [
+    "espeakng-loader>=0.2.4",
     "fastapi>=0.129.0",
+    "huggingface-hub>=1.0.0",
     "jinja2>=3.1.6",
-    "kittentts",
     "librosa>=0.11.0",
+    "onnxruntime>=1.24.2",
+    "phonemizer>=3.3.0",
     "praat-parselmouth>=0.4.7",
     "pydub>=0.25.1",
     "python-multipart>=0.0.22",
     "pyyaml>=6.0.3",
+    "soundfile>=0.13.1",
     "uvicorn[standard]>=0.41.0",
-    "torch>=2.10.0",
-    "torchaudio>=2.10.0",
 ]
 
-[tool.uv.sources]
-kittentts = { url = "https://github.com/KittenML/KittenTTS/releases/download/0.8/kittentts-0.8.0-py3-none-any.whl" }
-torch = { index = "pytorch-cpu" }
-torchaudio = { index = "pytorch-cpu" }
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
+[dependency-groups]
+nvidia = [
+    "onnxruntime-gpu>=1.24.2",
+]

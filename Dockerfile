@@ -14,14 +14,12 @@ ENV HF_HOME=/app/model_cache
 
 # Set uv environment variables for dependency installation
 ENV UV_COMPILE_BYTECODE=1
-ENV UV_SKIP_WHEEL_FILENAME_CHECK=1
 
 # Install system dependencies required for the application
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libsndfile1 \
     ffmpeg \
-    espeak-ng \
     curl \
     ca-certificates \
     && apt-get clean \
@@ -40,17 +38,14 @@ RUN uv python install 3.13
 # Copy dependency files first to leverage Docker's layer caching
 COPY pyproject.toml uv.lock ./
 
-# Sync the dependencies in the virtual environment
-RUN uv sync --python 3.13 --frozen --no-install-project --no-dev
-
-# --- Conditionally Install GPU Dependencies ---
-# If the RUNTIME argument is 'nvidia', install onnxruntime-gpu and CUDA torch.
+# Sync dependencies in the virtual environment.
+# For NVIDIA builds, include the dedicated nvidia dependency group.
 RUN if [ "$RUNTIME" = "nvidia" ]; then \
-    echo "RUNTIME=nvidia, installing GPU dependencies..."; \
-    uv pip install onnxruntime-gpu; \
-    uv pip install torch torchaudio torchvision --index-url https://download.pytorch.org/whl/cu121; \
+    echo "RUNTIME=nvidia, syncing dependencies with NVIDIA group..."; \
+    uv sync --python 3.13 --frozen --no-install-project --no-dev --group nvidia; \
     else \
-    echo "RUNTIME=cpu, skipping GPU dependencies."; \
+    echo "RUNTIME=cpu, syncing base dependencies."; \
+    uv sync --python 3.13 --frozen --no-install-project --no-dev; \
     fi
 
 # Copy the rest of the application code into the container
