@@ -10,15 +10,11 @@ import time
 import io
 import uuid
 from pathlib import Path
-from typing import Optional, Tuple, Dict, Any, Set, List
+from typing import Optional, Tuple, Set, List
 from pydub import AudioSegment
 
 import numpy as np
 import soundfile as sf
-
-# Configuration manager to get paths dynamically.
-# Assumes config.py and its config_manager are in the same directory or accessible via PYTHONPATH.
-from config import config_manager
 
 # Optional import for librosa (for audio resampling, e.g., Opus encoding and time stretching)
 try:

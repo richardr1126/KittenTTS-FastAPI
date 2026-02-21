@@ -3,30 +3,23 @@
 # Handles API requests for text-to-speech generation, UI serving,
 # configuration management, and file uploads.
 
-import os
 import io
 import logging
-import shutil
 import time
-import uuid
 import yaml  # For loading presets
 import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, List, Dict, Any, Literal
+from typing import Optional, List, Literal
 
 from fastapi import (
     FastAPI,
     HTTPException,
     Request,
-    File,
-    UploadFile,
-    Form,
     BackgroundTasks,
 )
 from fastapi.responses import (
     HTMLResponse,
-    JSONResponse,
     StreamingResponse,
     FileResponse,
 )
@@ -41,7 +34,6 @@ from config import (
     get_port,
     get_ui_title,
     get_gen_default_speed,
-    get_gen_default_language,
     get_audio_sample_rate,
     get_full_config_for_template,
     get_audio_output_format,
