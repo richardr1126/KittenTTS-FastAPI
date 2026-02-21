@@ -1,119 +1,77 @@
 # File: config.py
-# Manages application configuration using a YAML file (config.yaml).
-# Handles loading, saving, and providing access to configuration settings.
+# Manages application configuration using environment variables loaded from .env.
 
-import os
 import logging
-import yaml
-import shutil
+import os
 from copy import deepcopy
-from threading import Lock
-from typing import Dict, Any, Optional, List, Tuple
-import onnxruntime as ort  # For automatic device detection (GPU/CPU)
 from pathlib import Path
+from threading import Lock
+from typing import Any, Dict, Optional
 
-# Standard logger setup
+try:
+    import onnxruntime as ort
+except Exception:  # pragma: no cover - optional dependency behavior
+    ort = None
+
 logger = logging.getLogger(__name__)
 
-# --- File Path Constants ---
-# Defines the primary configuration file name and its location.
-# Since the code is in 'src/', we look for 'config.yaml' in the project root.
-PROJECT_ROOT = Path(__file__).parent.parent
-CONFIG_FILE_PATH = PROJECT_ROOT / "config.yaml"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
-# --- Default Directory Paths ---
-# These paths are used if not specified in config.yaml and are created if they don't exist
-DEFAULT_MODEL_FILES_PATH = PROJECT_ROOT / "model_cache"  # For downloaded model files
+DEFAULT_MODEL_FILES_PATH = PROJECT_ROOT / "model_cache"
 
-# --- Default Configuration Structure ---
-# This dictionary defines the complete expected structure of 'config.yaml',
-# including default values for all settings. It serves as the template for
-# creating a new config.yaml if one does not exist.
 DEFAULT_CONFIG: Dict[str, Any] = {
     "server": {
-        "host": "0.0.0.0",  # Host address for the server to listen on.
-        "port": 8005,  # Port number for the server.
+        "host": "0.0.0.0",
+        "port": 8005,
+        "enable_performance_monitor": False,
     },
-    "model": {  # Updated section for model source configuration
-        "repo_id": "KittenML/kitten-tts-nano-0.8-fp32",  # KittenTTS Hugging Face repository ID
+    "model": {
+        "repo_id": "KittenML/kitten-tts-nano-0.8-fp32",
     },
     "tts_engine": {
-        "device": "auto",  # TTS processing device: 'auto', 'cuda', or 'cpu'.
-        # 'auto' will attempt to use 'cuda' if available, otherwise 'cpu'.
+        "device": "auto",
     },
-    "paths": {  # General configurable paths for the application.
-        "model_cache": str(
-            DEFAULT_MODEL_FILES_PATH
-        ),  # Directory for caching or storing downloaded models.
+    "paths": {
+        "model_cache": str(DEFAULT_MODEL_FILES_PATH),
     },
-    "generation_defaults": {  # Default parameters for TTS audio generation.
-        "speed": 1.1,  # Controls the speed of the generated speech.
-        "language": "en",  # Default language for TTS.
+    "generation_defaults": {
+        "speed": 1.1,
+        "language": "en",
     },
-    "audio_output": {  # Settings related to the format of generated audio.
-        "format": "wav",  # Output audio format (e.g., 'wav', 'mp3').
-        "sample_rate": 24000,  # Sample rate of the output audio in Hz.
+    "audio_output": {
+        "format": "wav",
+        "sample_rate": 24000,
     },
-    "ui_state": {  # Stores user interface preferences and last-used values.
-        "last_text": "",  # Last text entered by the user.
-        "last_voice": "Jasper",  # Last selected voice.
-        "last_chunk_size": 120,  # Last used chunk size for text splitting in UI.
-        "last_split_text_enabled": True,  # Whether text splitting was last enabled in UI.
-        "hide_generation_warning": False,  # Flag to hide the general generation quality notice modal.
-        "theme": "dark",  # Default UI theme ('dark' or 'light').
-    },
-    "ui": {  # General UI display settings.
-        "title": "Kitten TTS Server",  # Updated title
-        "show_language_select": True,  # Whether to show language selection in the UI.
+    "ui": {
+        "title": "Kitten TTS Server",
+        "show_language_select": True,
     },
 }
 
-
-def _ensure_default_paths_exist():
-    """
-    Creates the default directories specified in DEFAULT_CONFIG if they do not already exist.
-    This is typically called when generating a default config.yaml file.
-    """
-    paths_to_check = [
-        Path(DEFAULT_CONFIG["paths"]["model_cache"]),
-    ]
-    for path in paths_to_check:
-        try:
-            path.mkdir(parents=True, exist_ok=True)
-        except Exception as e:
-            logger.error(f"Error creating default directory {path}: {e}", exc_info=True)
-
-
-def _deep_merge_dicts(source: Dict, destination: Dict) -> Dict:
-    """
-    Recursively merges the 'source' dictionary into the 'destination' dictionary.
-    Keys from 'source' will overwrite existing keys in 'destination'.
-    If a key in 'source' corresponds to a dictionary, a recursive merge is performed.
-    The 'destination' dictionary is modified in place.
-    """
-    for key, value in source.items():
-        if isinstance(value, dict):
-            node = destination.setdefault(key, {})
-            if isinstance(
-                node, dict
-            ):  # Ensure the destination node is a dict for merging
-                _deep_merge_dicts(value, node)
-            else:  # If destination's node is not a dict, overwrite it entirely
-                destination[key] = deepcopy(value)
-        else:
-            destination[key] = value
-    return destination
+ENV_KEY_MAP: Dict[str, str] = {
+    "server.host": "KITTEN_SERVER_HOST",
+    "server.port": "KITTEN_SERVER_PORT",
+    "server.enable_performance_monitor": "KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR",
+    "model.repo_id": "KITTEN_MODEL_REPO_ID",
+    "tts_engine.device": "KITTEN_TTS_DEVICE",
+    "paths.model_cache": "KITTEN_MODEL_CACHE",
+    "generation_defaults.speed": "KITTEN_GEN_DEFAULT_SPEED",
+    "generation_defaults.language": "KITTEN_GEN_DEFAULT_LANGUAGE",
+    "audio_output.format": "KITTEN_AUDIO_FORMAT",
+    "audio_output.sample_rate": "KITTEN_AUDIO_SAMPLE_RATE",
+    "ui.title": "KITTEN_UI_TITLE",
+    "ui.show_language_select": "KITTEN_UI_SHOW_LANGUAGE_SELECT",
+}
 
 
-def _set_nested_value(d: Dict, keys: List[str], value: Any):
-    """Helper function to set a value in a nested dictionary using a list of keys."""
+def _set_nested_value(d: Dict[str, Any], keys: list[str], value: Any):
     for key in keys[:-1]:
         d = d.setdefault(key, {})
     d[keys[-1]] = value
 
 
-def _get_nested_value(d: Dict, keys: List[str], default: Any = None) -> Any:
-    """Helper function to get a value from a nested dictionary using a list of keys."""
+def _get_nested_value(d: Dict[str, Any], keys: list[str], default: Any = None) -> Any:
     for key in keys:
         if isinstance(d, dict) and key in d:
             d = d[key]
@@ -122,491 +80,180 @@ def _get_nested_value(d: Dict, keys: List[str], default: Any = None) -> Any:
     return d
 
 
-class YamlConfigManager:
-    """
-    Manages application configuration stored in a YAML file.
-    This class handles loading, saving, updating, and resetting the configuration.
-    Operations are thread-safe for file writing.
-    """
+def _parse_bool(raw_value: Any, default: bool = False) -> bool:
+    if raw_value is None:
+        return default
+    if isinstance(raw_value, bool):
+        return raw_value
+    if isinstance(raw_value, str):
+        return raw_value.strip().lower() in {"1", "true", "t", "yes", "y", "on"}
+    return bool(raw_value)
+
+
+class EnvConfigManager:
+    """Loads read-only runtime configuration from .env and process environment variables."""
 
     def __init__(self):
-        """Initializes the configuration manager by loading the configuration from YAML."""
+        self._lock = Lock()
         self.config: Dict[str, Any] = {}
-        self._lock = Lock()  # Ensures thread-safety for file write operations.
         self.load_config()
 
-    def _load_defaults(self) -> Dict[str, Any]:
-        """
-        Returns a deep copy of the hardcoded default configuration structure.
-        Also ensures that default directory paths defined in the structure exist.
-        """
-        _ensure_default_paths_exist()  # Create necessary default directories.
-        return deepcopy(DEFAULT_CONFIG)
+    def _ensure_default_paths_exist(self):
+        try:
+            Path(DEFAULT_CONFIG["paths"]["model_cache"]).mkdir(parents=True, exist_ok=True)
+        except Exception as exc:
+            logger.error("Error creating default model cache directory: %s", exc, exc_info=True)
 
-    def _resolve_paths_and_device(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Resolves device settings (e.g., 'auto' to 'cuda' or 'cpu') and converts
-        string paths in the configuration data to Path objects for internal use.
-        The 'config_data' dictionary is modified in place.
-        """
-        # Resolve TTS device setting with robust CUDA detection.
-        current_device_setting = _get_nested_value(
-            config_data, ["tts_engine", "device"], "auto"
-        )
-        if current_device_setting == "auto":
-            resolved_device = self._detect_best_device()
-            _set_nested_value(config_data, ["tts_engine", "device"], resolved_device)
-        elif current_device_setting not in ["cuda", "cpu", "gpu"]:
-            logger.warning(
-                f"Invalid TTS device '{current_device_setting}' in configuration. "
-                f"Recognized values are 'auto', 'cpu', 'cuda', 'gpu'. Defaulting to auto-detection."
-            )
-            resolved_device = self._detect_best_device()
-            _set_nested_value(config_data, ["tts_engine", "device"], resolved_device)
+    def _parse_env_file(self) -> Dict[str, str]:
+        if not ENV_FILE_PATH.exists():
+            return {}
 
-        final_device = _get_nested_value(config_data, ["tts_engine", "device"])
-        logger.info(f"TTS processing device resolved to: {final_device}")
+        parsed: Dict[str, str] = {}
+        with open(ENV_FILE_PATH, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#"):
+                    continue
 
-        # Convert relevant string paths to Path objects.
-        path_key_map_for_conversion = {
-            "paths": ["model_cache"],
-        }
-        for section, keys_list in path_key_map_for_conversion.items():
-            if section in config_data:
-                for key in keys_list:
-                    current_path_val = _get_nested_value(config_data, [section, key])
-                    if isinstance(current_path_val, str):
-                        _set_nested_value(
-                            config_data, [section, key], Path(current_path_val)
-                        )
-        return config_data
+                if line.startswith("export "):
+                    line = line[len("export ") :].strip()
+
+                if "=" not in line:
+                    continue
+
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip()
+
+                if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+                    value = value[1:-1]
+
+                parsed[key] = value
+
+        return parsed
+
+    def _coerce_env_value(self, raw_value: str, default_value: Any) -> Any:
+        if isinstance(default_value, bool):
+            return _parse_bool(raw_value, default=default_value)
+        if isinstance(default_value, int) and not isinstance(default_value, bool):
+            try:
+                return int(str(raw_value).strip())
+            except (ValueError, TypeError):
+                logger.warning("Invalid integer env value '%s'. Falling back to default '%s'.", raw_value, default_value)
+                return default_value
+        if isinstance(default_value, float):
+            try:
+                return float(str(raw_value).strip())
+            except (ValueError, TypeError):
+                logger.warning("Invalid float env value '%s'. Falling back to default '%s'.", raw_value, default_value)
+                return default_value
+        return str(raw_value)
 
     def _detect_best_device(self) -> str:
-        """
-        Robustly detects the best available device for TTS processing using ONNX Runtime.
-        Checks for available execution providers like CUDA or ROCm.
+        if ort is None:
+            logger.info("onnxruntime not available during device detection. Falling back to CPU.")
+            return "cpu"
 
-        Returns:
-            str: 'cuda' if a GPU provider is available and functional, 'cpu' otherwise.
-        """
         try:
             available_providers = ort.get_available_providers()
-            logger.debug(f"Available ONNX Runtime providers: {available_providers}")
-            
-            # Check for common GPU providers
-            # CUDAExecutionProvider is for NVIDIA GPUs, ROCMExecutionProvider for AMD GPUs.
-            # DirectMLExecutionProvider can also be used on Windows for various GPUs.
-            # CoreMLExecutionProvider is for Apple Silicon (Mac).
+            logger.debug("Available ONNX Runtime providers: %s", available_providers)
+
             gpu_providers = [
-                "CUDAExecutionProvider", 
-                "ROCMExecutionProvider", 
-                "DirectMLExecutionProvider", 
-                "CoreMLExecutionProvider"
+                "CUDAExecutionProvider",
+                "ROCMExecutionProvider",
+                "DirectMLExecutionProvider",
+                "CoreMLExecutionProvider",
             ]
-            
             for provider in gpu_providers:
                 if provider in available_providers:
-                    logger.info(f"GPU execution provider '{provider}' found. Using GPU.")
+                    logger.info("GPU execution provider '%s' found. Using GPU.", provider)
                     return "cuda"
-            
-            logger.info("No supported GPU execution providers found. Using CPU.")
+
+            logger.info("No supported GPU execution provider found. Using CPU.")
             return "cpu"
-            
-        except Exception as e:
-            logger.warning(f"Error during ONNX Runtime device detection: {e}. Defaulting to CPU.")
+        except Exception as exc:
+            logger.warning("Error during ONNX Runtime device detection: %s. Defaulting to CPU.", exc)
             return "cpu"
 
-    def _prepare_config_for_saving(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Prepares a configuration dictionary for YAML serialization by converting
-        internal Path objects back to their string representations.
-        Returns a deep copy of the configuration dictionary with paths as strings.
-        """
-        config_copy_for_saving = deepcopy(config_dict)
-        path_key_map_for_conversion = {
-            "paths": ["model_cache"],
-        }
-        for section, keys_list in path_key_map_for_conversion.items():
-            if section in config_copy_for_saving:
-                for key in keys_list:
-                    current_path_val = _get_nested_value(
-                        config_copy_for_saving, [section, key]
-                    )
-                    if isinstance(current_path_val, Path):
-                        _set_nested_value(
-                            config_copy_for_saving,
-                            [section, key],
-                            str(current_path_val),
-                        )
-        return config_copy_for_saving
+    def _resolve_paths_and_device(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
+        configured_device = str(_get_nested_value(config_data, ["tts_engine", "device"], "auto")).strip().lower()
 
-    def load_config(self):
-        """
-        Loads the application configuration from 'config.yaml'.
-        If the file doesn't exist, it's created using defaults.
-        The loaded configuration is merged with defaults to ensure all expected keys are present.
-        Device settings and path types are resolved after loading.
-        """
-        with self._lock:  # Ensure thread-safe loading.
-            base_defaults = self._load_defaults()  # Ensures default paths exist.
-
-            if CONFIG_FILE_PATH.exists():
-                logger.info(f"Loading configuration from: {CONFIG_FILE_PATH}")
-                try:
-                    with open(CONFIG_FILE_PATH, "r", encoding="utf-8") as f:
-                        yaml_data = yaml.safe_load(f)
-                    if isinstance(yaml_data, dict):
-                        # Merge loaded YAML data into a copy of defaults.
-                        # YAML data takes precedence, defaults fill in missing parts.
-                        effective_config = deepcopy(base_defaults)
-                        _deep_merge_dicts(yaml_data, effective_config)
-                        self.config = effective_config
-                        logger.info(
-                            f"Successfully loaded and merged configuration from {CONFIG_FILE_PATH}."
-                        )
-                    else:
-                        logger.error(
-                            f"Invalid format in {CONFIG_FILE_PATH}. Expected a dictionary. "
-                            f"Using defaults and attempting to overwrite the invalid file."
-                        )
-                        self.config = base_defaults  # Fallback to defaults.
-                        if not self._save_config_yaml_internal(self.config):
-                            logger.error(
-                                f"Failed to overwrite invalid {CONFIG_FILE_PATH} with defaults."
-                            )
-                except yaml.YAMLError as e:
-                    logger.error(
-                        f"Error parsing YAML from {CONFIG_FILE_PATH}: {e}. "
-                        f"Using defaults and attempting to overwrite the corrupted file."
-                    )
-                    self.config = base_defaults
-                    if not self._save_config_yaml_internal(self.config):
-                        logger.error(
-                            f"Failed to overwrite corrupted {CONFIG_FILE_PATH} with defaults."
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"Unexpected error loading {CONFIG_FILE_PATH}: {e}. Using in-memory defaults.",
-                        exc_info=True,
-                    )
-                    self.config = base_defaults  # Use defaults, avoid saving on unexpected errors.
-            else:
-                logger.info(
-                    f"{CONFIG_FILE_PATH} not found. Creating initial configuration using defaults..."
-                )
-                # Start with defaults.
-                self.config = base_defaults
-                if self._save_config_yaml_internal(self.config):
-                    logger.info(
-                        f"Successfully created and saved initial default configuration to {CONFIG_FILE_PATH}."
-                    )
-                else:
-                    logger.error(
-                        f"Failed to save initial configuration to {CONFIG_FILE_PATH}. "
-                        f"Using in-memory defaults."
-                    )
-
-            # Resolve device and convert path strings to Path objects for the loaded/created config.
-            self.config = self._resolve_paths_and_device(self.config)
-            logger.debug(f"Current configuration loaded and resolved: {self.config}")
-            return self.config
-
-    def _save_config_yaml_internal(self, config_dict_to_save: Dict[str, Any]) -> bool:
-        """
-        Internal method to save the provided configuration dictionary to 'config.yaml'.
-        It includes a backup and restore mechanism for safety during writes.
-        Assumes the caller holds the necessary lock.
-        Converts Path objects to strings before YAML serialization.
-        """
-        # Prepare the configuration for saving (e.g., convert Path objects to strings).
-        prepared_config_for_yaml = self._prepare_config_for_saving(config_dict_to_save)
-
-        temp_file = CONFIG_FILE_PATH.with_suffix(CONFIG_FILE_PATH.suffix + ".tmp")
-        backup_file = CONFIG_FILE_PATH.with_suffix(CONFIG_FILE_PATH.suffix + ".bak")
-
-        try:
-            # Atomically write to a temporary file first.
-            with open(temp_file, "w", encoding="utf-8") as f:
-                yaml.dump(
-                    prepared_config_for_yaml,
-                    f,
-                    default_flow_style=False,
-                    sort_keys=False,
-                    indent=2,
-                )
-
-            # If an existing config file exists, back it up.
-            if CONFIG_FILE_PATH.exists():
-                try:
-                    shutil.move(str(CONFIG_FILE_PATH), str(backup_file))
-                    logger.debug(f"Backed up existing configuration to {backup_file}")
-                except Exception as backup_error:
-                    logger.warning(
-                        f"Could not create backup of {CONFIG_FILE_PATH}: {backup_error}"
-                    )
-                    # Proceed with saving, but warn about missing backup.
-
-            # Rename the temporary file to the actual configuration file.
-            shutil.move(str(temp_file), str(CONFIG_FILE_PATH))
-            logger.info(f"Configuration successfully saved to {CONFIG_FILE_PATH}")
-            return True
-
-        except yaml.YAMLError as e_yaml:
-            logger.error(
-                f"Error formatting data for {CONFIG_FILE_PATH} (YAML error): {e_yaml}",
-                exc_info=True,
+        if configured_device == "auto":
+            resolved_device = self._detect_best_device()
+        elif configured_device in {"cuda", "gpu"}:
+            resolved_device = "cuda"
+        elif configured_device == "cpu":
+            resolved_device = "cpu"
+        else:
+            logger.warning(
+                "Invalid KITTEN_TTS_DEVICE '%s'. Using auto device detection instead.",
+                configured_device,
             )
-            return False
-        except Exception as e_general:
-            logger.error(
-                f"Failed to save configuration to {CONFIG_FILE_PATH}: {e_general}",
-                exc_info=True,
-            )
-            # Attempt to restore from backup if the save operation failed.
-            if backup_file.exists() and not CONFIG_FILE_PATH.exists():
-                try:
-                    shutil.move(str(backup_file), str(CONFIG_FILE_PATH))
-                    logger.info(
-                        f"Restored configuration from backup {backup_file} due to save failure."
-                    )
-                except Exception as restore_error:
-                    logger.error(
-                        f"Failed to restore configuration from backup: {restore_error}"
-                    )
-            # Clean up the temporary file if it still exists after a failure.
-            if temp_file.exists():
-                try:
-                    os.remove(str(temp_file))
-                except Exception as remove_error:
-                    logger.warning(
-                        f"Could not remove temporary config file {temp_file}: {remove_error}"
-                    )
-            return False
-        finally:
-            # Clean up the backup file if the main configuration file exists and the save was successful.
-            if CONFIG_FILE_PATH.exists() and backup_file.exists():
-                try:
-                    if (
-                        CONFIG_FILE_PATH.stat().st_size > 0
-                    ):  # Basic check that the new file is not empty.
-                        os.remove(str(backup_file))
-                        logger.debug(
-                            f"Removed backup file {backup_file} after successful save."
-                        )
-                except Exception as remove_bak_error:
-                    logger.warning(
-                        f"Could not remove backup config file {backup_file}: {remove_bak_error}"
-                    )
+            resolved_device = self._detect_best_device()
 
-    def save_config_yaml(self) -> bool:
-        """
-        Public method to save the current in-memory configuration to 'config.yaml'.
-        Ensures thread-safety using a lock.
-        """
+        _set_nested_value(config_data, ["tts_engine", "device"], resolved_device)
+
+        model_cache_raw = _get_nested_value(config_data, ["paths", "model_cache"])
+        if isinstance(model_cache_raw, str):
+            _set_nested_value(config_data, ["paths", "model_cache"], Path(model_cache_raw))
+
+        logger.info("TTS processing device resolved to: %s", resolved_device)
+        return config_data
+
+    def _load_from_environment(self) -> Dict[str, Any]:
+        base_config = deepcopy(DEFAULT_CONFIG)
+        env_file_values = self._parse_env_file()
+
+        for key_path, env_key in ENV_KEY_MAP.items():
+            raw_value = os.environ.get(env_key, env_file_values.get(env_key))
+            if raw_value is None:
+                continue
+
+            default_value = _get_nested_value(DEFAULT_CONFIG, key_path.split("."))
+            coerced_value = self._coerce_env_value(raw_value, default_value)
+            _set_nested_value(base_config, key_path.split("."), coerced_value)
+
+        return self._resolve_paths_and_device(base_config)
+
+    def load_config(self) -> Dict[str, Any]:
         with self._lock:
-            return self._save_config_yaml_internal(self.config)
+            self._ensure_default_paths_exist()
+            self.config = self._load_from_environment()
+            return deepcopy(self.config)
 
     def get(self, key_path: str, default: Any = None) -> Any:
-        """
-        Retrieves a configuration value using a dot-separated key path (e.g., 'server.port').
-        If the key path is not found, 'default' is returned.
-        For mutable types (dicts, lists), a deep copy is returned to prevent
-        unintended modification of the in-memory configuration.
-        """
         keys = key_path.split(".")
-        with self._lock:  # Ensure thread-safe access to self.config.
+        with self._lock:
             value = _get_nested_value(self.config, keys, default)
         return deepcopy(value) if isinstance(value, (dict, list)) else value
 
     def get_string(self, key_path: str, default: Optional[str] = None) -> str:
-        """Retrieves a configuration value, ensuring it's a string."""
-        # Added this method for explicit string retrieval, common for paths/IDs.
-        raw_value = self.get(key_path)
-        if raw_value is None:
-            if default is not None:
-                logger.debug(
-                    f"Config string '{key_path}' is None, using provided method default: '{default}'"
-                )
-                return default
-            logger.error(
-                f"Mandatory string config '{key_path}' is None, and no method default. Returning empty string."
-            )
-            return ""
-        if isinstance(
-            raw_value, (Path, str)
-        ):  # Handle Path objects by converting to string
-            return str(raw_value)
-        try:  # Attempt conversion for other types if necessary
-            return str(raw_value)
-        except Exception:
-            logger.warning(
-                f"Could not convert value '{raw_value}' for '{key_path}' to string. Using method default or empty string."
-            )
-            if default is not None:
-                return default
-            return ""
+        value = self.get(key_path, default)
+        if value is None:
+            return default if default is not None else ""
+        return str(value)
 
-    def get_all(self) -> Dict[str, Any]:
-        """
-        Returns a deep copy of the entire current configuration.
-        Ensures thread-safety during the copy operation.
-        """
-        with self._lock:
-            return deepcopy(self.config)
-
-    def update_and_save(self, partial_update_dict: Dict[str, Any]) -> bool:
-        """
-        Deeply merges a 'partial_update_dict' into the current configuration
-        and saves the entire updated configuration back to the YAML file.
-        This allows updating specific nested values without overwriting entire sections.
-        """
-        if not isinstance(partial_update_dict, dict):
-            logger.error("Invalid partial update data: input must be a dictionary.")
-            return False
-
-        with self._lock:
-            try:
-                # Work on a deep copy of the current config to avoid altering it before a successful save.
-                config_copy_for_update = deepcopy(self.config)
-                # Merge the partial update into this copy.
-                _deep_merge_dicts(partial_update_dict, config_copy_for_update)
-
-                # Before saving, the merged config might need path/device re-resolution
-                # if those specific keys were part of partial_update_dict.
-                # For robustness, always re-resolve.
-                resolved_updated_config = self._resolve_paths_and_device(
-                    config_copy_for_update
-                )
-
-                if self._save_config_yaml_internal(resolved_updated_config):
-                    # If save was successful, update the active in-memory config.
-                    self.config = resolved_updated_config
-                    logger.info(
-                        "Configuration updated, saved, and re-resolved successfully."
-                    )
-                    return True
-                else:
-                    logger.error("Failed to save updated configuration after merging.")
-                    return False
-            except Exception as e:
-                logger.error(
-                    f"Error during configuration update and save process: {e}",
-                    exc_info=True,
-                )
-                return False
-
-    def reset_and_save(self) -> bool:
-        """
-        Resets the application configuration to its hardcoded defaults.
-        The reset configuration (after resolving paths/device) is then saved to 'config.yaml'.
-        """
-        with self._lock:
-            logger.warning("Initiating configuration reset to hardcoded defaults...")
-            # Start with hardcoded defaults (this also ensures default directories are created).
-            reset_config_base = self._load_defaults()
-            # Resolve device settings and ensure paths are Path objects for the new in-memory config.
-            final_reset_config = self._resolve_paths_and_device(reset_config_base)
-
-            if self._save_config_yaml_internal(
-                final_reset_config
-            ):  # Save the fully resolved reset config.
-                self.config = final_reset_config  # Update the active in-memory config.
-                logger.info(
-                    "Configuration successfully reset to defaults, saved, and resolved."
-                )
-                return True
-            else:
-                logger.error(
-                    "Failed to save the reset configuration. Current configuration remains unchanged."
-                )
-                # If save failed, the old self.config is retained.
-                return False
-
-    # --- Type-specific Getters ---
-    # These provide convenient, type-checked access to configuration values.
     def get_int(self, key_path: str, default: Optional[int] = None) -> int:
-        """Retrieves a configuration value, converting it to an integer."""
-        raw_value = self.get(key_path)
-        if raw_value is None:
-            if default is not None:
-                logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
-                )
-                return default
-            logger.error(
-                f"Mandatory integer config '{key_path}' is None, and no method default. Returning 0."
-            )
-            return 0
+        value = self.get(key_path, default)
+        if value is None:
+            return default if default is not None else 0
         try:
-            return int(raw_value)
+            return int(value)
         except (ValueError, TypeError):
-            logger.warning(
-                f"Invalid integer value '{raw_value}' for '{key_path}'. Using method default or 0."
-            )
-            if isinstance(default, int):
-                return default
-            logger.error(
-                f"Cannot parse '{raw_value}' as int for '{key_path}' and no valid method default. Returning 0."
-            )
-            return 0
+            return default if isinstance(default, int) else 0
 
     def get_float(self, key_path: str, default: Optional[float] = None) -> float:
-        """Retrieves a configuration value, converting it to a float."""
-        raw_value = self.get(key_path)
-        if raw_value is None:
-            if default is not None:
-                logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
-                )
-                return default
-            logger.error(
-                f"Mandatory float config '{key_path}' is None, and no method default. Returning 0.0."
-            )
-            return 0.0
+        value = self.get(key_path, default)
+        if value is None:
+            return default if default is not None else 0.0
         try:
-            return float(raw_value)
+            return float(value)
         except (ValueError, TypeError):
-            logger.warning(
-                f"Invalid float value '{raw_value}' for '{key_path}'. Using method default or 0.0."
-            )
-            if isinstance(default, float):
-                return default
-            logger.error(
-                f"Cannot parse '{raw_value}' as float for '{key_path}' and no valid method default. Returning 0.0."
-            )
-            return 0.0
+            return default if isinstance(default, float) else 0.0
 
     def get_bool(self, key_path: str, default: Optional[bool] = None) -> bool:
-        """Retrieves a configuration value, converting it to a boolean."""
-        raw_value = self.get(key_path)
-        if raw_value is None:
-            if default is not None:
-                logger.debug(
-                    f"Config '{key_path}' is None, using provided method default: {default}"
-                )
-                return default
-            logger.error(
-                f"Mandatory boolean config '{key_path}' is None, and no method default. Returning False."
-            )
-            return False
-        if isinstance(raw_value, bool):
-            return raw_value
-        if isinstance(
-            raw_value, str
-        ):  # Handle common string representations of booleans.
-            return raw_value.lower() in ("true", "1", "t", "yes", "y")
-        try:  # Handle numeric representations (e.g., 1 for True, 0 for False).
-            return bool(int(raw_value))
-        except (ValueError, TypeError):
-            logger.warning(
-                f"Invalid boolean value '{raw_value}' for '{key_path}'. Using method default or False."
-            )
-            if isinstance(default, bool):
-                return default
-            logger.error(
-                f"Cannot parse '{raw_value}' as bool for '{key_path}' and no valid method default. Returning False."
-            )
-            return False
+        value = self.get(key_path, default)
+        return _parse_bool(value, default if default is not None else False)
 
     def get_path(
         self,
@@ -614,104 +261,69 @@ class YamlConfigManager:
         default_str_path: Optional[str] = None,
         ensure_absolute: bool = False,
     ) -> Path:
-        """
-        Retrieves a configuration value expected to be a path, returning it as a Path object.
-        If 'ensure_absolute' is True, the path is resolved to an absolute path.
-        """
-        value_from_config = self.get(key_path)
+        value = self.get(key_path)
 
-        path_obj_to_return: Path
-        if isinstance(value_from_config, Path):
-            path_obj_to_return = value_from_config
-        elif isinstance(value_from_config, str):  # Convert string from config to Path.
-            path_obj_to_return = Path(value_from_config)
-        elif default_str_path is not None:  # Fallback to provided string default.
-            logger.debug(
-                f"Config Path '{key_path}' not found or invalid type, using provided default string path: '{default_str_path}'"
-            )
-            path_obj_to_return = Path(default_str_path)
-        else:  # Ultimate fallback if no value and no default.
-            logger.error(
-                f"Config Path '{key_path}' not found or invalid type, and no default provided. Returning Path('.')"
-            )
-            path_obj_to_return = Path(".")  # Current directory.
+        if isinstance(value, Path):
+            path_obj = value
+        elif isinstance(value, str):
+            path_obj = Path(value)
+        elif default_str_path is not None:
+            path_obj = Path(default_str_path)
+        else:
+            path_obj = Path(".")
 
-        return path_obj_to_return.resolve() if ensure_absolute else path_obj_to_return
+        return path_obj.resolve() if ensure_absolute else path_obj
+
+    def get_all(self) -> Dict[str, Any]:
+        with self._lock:
+            return deepcopy(self.config)
+
+    def _prepare_config_for_saving(self, config_dict: Dict[str, Any]) -> Dict[str, Any]:
+        config_copy = deepcopy(config_dict)
+        model_cache_path = _get_nested_value(config_copy, ["paths", "model_cache"])
+        if isinstance(model_cache_path, Path):
+            _set_nested_value(config_copy, ["paths", "model_cache"], str(model_cache_path))
+        return config_copy
 
 
-# --- Singleton Instance ---
-# This provides a single, globally accessible instance of the configuration manager.
-config_manager = YamlConfigManager()
-
-# --- Convenience Accessor Functions ---
-# These functions provide easy, module-level access to common configuration settings
-# using the singleton 'config_manager' instance.
+config_manager = EnvConfigManager()
 
 
 def _get_default_from_structure(key_path: str) -> Any:
-    """Internal helper to retrieve a default value directly from the DEFAULT_CONFIG structure."""
-    keys = key_path.split(".")
-    return _get_nested_value(DEFAULT_CONFIG, keys)
+    return _get_nested_value(DEFAULT_CONFIG, key_path.split("."))
 
 
-# Server Settings Accessors
 def get_host() -> str:
-    """Returns the server host address."""
-    return config_manager.get_string(
-        "server.host", _get_default_from_structure("server.host")
-    )
+    return config_manager.get_string("server.host", _get_default_from_structure("server.host"))
 
 
 def get_port() -> int:
-    """Returns the server port number."""
-    return config_manager.get_int(
-        "server.port", _get_default_from_structure("server.port")
-    )
+    return config_manager.get_int("server.port", _get_default_from_structure("server.port"))
 
 
-# Audio Output Settings Accessors
 def get_audio_output_format() -> str:
-    """Returns the default audio output format (e.g., 'wav')."""
     return config_manager.get_string(
         "audio_output.format", _get_default_from_structure("audio_output.format")
     )
 
 
-
-
-
-# Model Settings Accessors
 def get_model_repo_id() -> str:
-    """Returns the Hugging Face repository ID for the model."""
-    return config_manager.get_string(
-        "model.repo_id", _get_default_from_structure("model.repo_id")
-    )
+    return config_manager.get_string("model.repo_id", _get_default_from_structure("model.repo_id"))
 
 
-# TTS Engine Settings Accessors
 def get_tts_device() -> str:
-    """Returns the resolved TTS processing device ('cuda' or 'cpu')."""
-    # Device is resolved during load_config, so direct get is appropriate.
-    return config_manager.get_string(
-        "tts_engine.device", _get_default_from_structure("tts_engine.device")
-    )
+    return config_manager.get_string("tts_engine.device", _get_default_from_structure("tts_engine.device"))
 
 
-# General Path Settings Accessors
 def get_model_cache_path(ensure_absolute: bool = True) -> Path:
-    """Returns the path to the model cache directory."""
-    default_path_str = str(_get_default_from_structure("paths.model_cache"))
     return config_manager.get_path(
-        "paths.model_cache", default_path_str, ensure_absolute=ensure_absolute
+        "paths.model_cache",
+        str(_get_default_from_structure("paths.model_cache")),
+        ensure_absolute=ensure_absolute,
     )
 
 
-
-
-
-# Default Generation Parameter Accessors
 def get_gen_default_speed() -> float:
-    """Returns the default speed for TTS generation."""
     return config_manager.get_float(
         "generation_defaults.speed",
         _get_default_from_structure("generation_defaults.speed"),
@@ -719,47 +331,25 @@ def get_gen_default_speed() -> float:
 
 
 def get_gen_default_language() -> str:
-    """Returns the default language for TTS generation."""
     return config_manager.get_string(
         "generation_defaults.language",
         _get_default_from_structure("generation_defaults.language"),
     )
 
 
-# Audio Output Settings Accessors
 def get_audio_sample_rate() -> int:
-    """Returns the default audio sample rate."""
     return config_manager.get_int(
         "audio_output.sample_rate",
         _get_default_from_structure("audio_output.sample_rate"),
     )
 
 
-# UI State Accessors
-def get_ui_state() -> Dict[str, Any]:
-    """Returns the entire UI state dictionary (for UI persistence)."""
-    return config_manager.get(
-        "ui_state", deepcopy(_get_default_from_structure("ui_state"))
-    )
-
-
-# General UI Settings Accessors
 def get_ui_title() -> str:
-    """Returns the title for the web UI."""
-    return config_manager.get_string(
-        "ui.title", _get_default_from_structure("ui.title")
-    )
+    return config_manager.get_string("ui.title", _get_default_from_structure("ui.title"))
 
 
 def get_full_config_for_template() -> Dict[str, Any]:
-    """
-    Returns a deep copy of the current configuration, with Path objects
-    converted to strings. This is suitable for serialization (e.g., JSON)
-    or for passing to web templates or API responses.
-    """
-    config_snapshot = config_manager.get_all()  # Gets a deep copy.
-    # Convert Path objects in this snapshot to strings for serialization.
-    return config_manager._prepare_config_for_saving(config_snapshot)
+    return config_manager._prepare_config_for_saving(config_manager.get_all())
 
 
 # --- End File: config.py ---

@@ -22,6 +22,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     const IS_LOCAL_FILE = window.location.protocol === 'file:';
     // If you always access the server via localhost
     const API_BASE_URL = IS_LOCAL_FILE ? 'http://localhost:8005' : '';
+    const UI_STATE_STORAGE_KEY = 'kitten_tts_ui_state_v1';
 
     const DEBOUNCE_DELAY_MS = 750;
 
@@ -113,6 +114,16 @@ document.addEventListener('DOMContentLoaded', async function () {
         return `${minutes}:${secs}`;
     }
 
+    function loadUiStateFromStorage() {
+        try {
+            const serialized = localStorage.getItem(UI_STATE_STORAGE_KEY);
+            return serialized ? JSON.parse(serialized) : {};
+        } catch (error) {
+            console.warn('Failed to parse persisted UI state, resetting local UI state.', error);
+            return {};
+        }
+    }
+
     // --- Theme Management ---
     function applyTheme(theme) {
         const isDark = theme === 'dark';
@@ -141,7 +152,7 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     // --- UI State Persistence ---
-    async function saveCurrentUiState() {
+    function saveCurrentUiState() {
         const stateToSave = {
             last_text: textArea ? textArea.value : '',
             last_voice: currentVoice,
@@ -150,20 +161,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             hide_generation_warning: hideGenerationWarning,
             theme: localStorage.getItem('uiTheme') || 'dark'
         };
-        try {
-            const response = await fetch(`${API_BASE_URL}/save_settings`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ ui_state: stateToSave })
-            });
-            if (!response.ok) {
-                const errorResult = await response.json();
-                throw new Error(errorResult.detail || `Failed to save UI state (status ${response.status})`);
-            }
-        } catch (error) {
-            console.error("Error saving UI state via API:", error);
-            showNotification(`Error saving settings: ${error.message}. Some changes may not persist.`, 'error', 0);
-        }
+        localStorage.setItem(UI_STATE_STORAGE_KEY, JSON.stringify(stateToSave));
     }
 
     function debouncedSaveState() {
@@ -203,7 +201,8 @@ document.addEventListener('DOMContentLoaded', async function () {
             }
             const data = await response.json();
             currentConfig = data.config || {};
-            currentUiState = currentConfig.ui_state || {};
+            currentConfig.initial_gen_result = data.initial_gen_result || null;
+            currentUiState = loadUiStateFromStorage();
             appPresets = data.presets || [];
             availableVoices = data.available_voices || KITTEN_TTS_VOICES;
             hideGenerationWarning = currentUiState.hide_generation_warning || false;
@@ -216,8 +215,7 @@ document.addEventListener('DOMContentLoaded', async function () {
             console.error("Error fetching initial data:", error);
             showNotification(`Could not load essential application data: ${error.message}. Please try refreshing.`, 'error', 0);
             if (Object.keys(currentConfig).length === 0) {
-                currentConfig = { ui: { title: "Kitten TTS Server (Error Mode)" }, generation_defaults: {}, ui_state: {} };
-                currentUiState = currentConfig.ui_state;
+                currentConfig = { ui: { title: "Kitten TTS Server (Error Mode)" }, generation_defaults: {} };
                 availableVoices = KITTEN_TTS_VOICES;
             }
             initializeApplication(); // Attempt to init in a degraded state
@@ -587,12 +585,11 @@ document.addEventListener('DOMContentLoaded', async function () {
             const input = serverConfigForm.querySelector(`input[name="${name}"]`);
             if (input) {
                 input.value = fieldsToDisplay[name] !== undefined ? fieldsToDisplay[name] : '';
-                if (name.includes('.host') || name.includes('.port') || name.includes('.device') || name.includes('paths.')) input.readOnly = true;
-                else input.readOnly = false;
+                input.readOnly = true;
             }
         }
     }
-    async function updateConfigStatus(button, statusElem, message, type = 'info', duration = 5000, enableButtonAfter = true) {
+    function updateConfigStatus(button, statusElem, message, type = 'info', duration = 5000, enableButtonAfter = true) {
         const statusClasses = { success: 'text-green-600 dark:text-green-400', error: 'text-red-600 dark:text-red-400', warning: 'text-yellow-600 dark:text-yellow-400', info: 'text-indigo-600 dark:text-indigo-400', processing: 'text-yellow-600 dark:text-yellow-400 animate-pulse' };
         const isProcessing = message.toLowerCase().includes('saving') || message.toLowerCase().includes('restarting') || message.toLowerCase().includes('resetting');
         const messageType = isProcessing ? 'processing' : type;
@@ -607,85 +604,36 @@ document.addEventListener('DOMContentLoaded', async function () {
     }
 
     if (saveConfigBtn && configStatus) {
-        saveConfigBtn.addEventListener('click', async () => {
-            const configDataToSave = {};
-            const inputs = serverConfigForm.querySelectorAll('input[name]:not([readonly]), select[name]:not([readonly])');
-            inputs.forEach(input => {
-                const keys = input.name.split('.'); let currentLevel = configDataToSave;
-                keys.forEach((key, index) => {
-                    if (index === keys.length - 1) {
-                        let value = input.value;
-                        if (input.type === 'number') value = parseFloat(value) || 0;
-                        else if (input.type === 'checkbox') value = input.checked;
-                        currentLevel[key] = value;
-                    } else { currentLevel[key] = currentLevel[key] || {}; currentLevel = currentLevel[key]; }
-                });
-            });
-            if (Object.keys(configDataToSave).length === 0) { showNotification("No editable configuration values to save.", "info"); return; }
-            updateConfigStatus(saveConfigBtn, configStatus, 'Saving configuration...', 'info', 0, false);
-            try {
-                const response = await fetch(`${API_BASE_URL}/save_settings`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(configDataToSave)
-                });
-                const result = await response.json();
-                if (!response.ok) throw new Error(result.detail || 'Failed to save configuration');
-                updateConfigStatus(saveConfigBtn, configStatus, result.message || 'Configuration saved.', 'success', 5000);
-                if (result.restart_needed && restartServerBtn) restartServerBtn.classList.remove('hidden');
-                await fetchInitialData();
-                showNotification("Configuration saved. Some changes may require a server restart if prompted.", "success");
-            } catch (error) {
-                console.error('Error saving server config:', error);
-                updateConfigStatus(saveConfigBtn, configStatus, `Error: ${error.message}`, 'error', 0);
-            }
+        saveConfigBtn.addEventListener('click', () => {
+            updateConfigStatus(
+                saveConfigBtn,
+                configStatus,
+                'Server settings are read-only in the UI. Edit .env and restart the server.',
+                'info',
+                6000,
+            );
         });
     }
 
     if (saveGenDefaultsBtn && genDefaultsStatus) {
-        saveGenDefaultsBtn.addEventListener('click', async () => {
-            const genParams = {
-                speed: parseFloat(speedSlider.value),
-                language: languageSelect.value
-            };
-            updateConfigStatus(saveGenDefaultsBtn, genDefaultsStatus, 'Saving generation defaults...', 'info', 0, false);
-            try {
-                const response = await fetch(`${API_BASE_URL}/save_settings`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ generation_defaults: genParams })
-                });
-                const result = await response.json();
-                if (!response.ok) throw new Error(result.detail || 'Failed to save generation defaults');
-                updateConfigStatus(saveGenDefaultsBtn, genDefaultsStatus, result.message || 'Generation defaults saved.', 'success', 5000);
-                if (currentConfig.generation_defaults) Object.assign(currentConfig.generation_defaults, genParams);
-            } catch (error) {
-                console.error('Error saving generation defaults:', error);
-                updateConfigStatus(saveGenDefaultsBtn, genDefaultsStatus, `Error: ${error.message}`, 'error', 0);
-            }
+        saveGenDefaultsBtn.addEventListener('click', () => {
+            updateConfigStatus(
+                saveGenDefaultsBtn,
+                genDefaultsStatus,
+                'Generation defaults now come from .env. Edit .env and restart to change server defaults.',
+                'info',
+                6000,
+            );
         });
     }
 
     if (resetSettingsBtn) {
-        resetSettingsBtn.addEventListener('click', async () => {
-            if (!confirm("Are you sure you want to reset ALL settings to their initial defaults? This will affect config.yaml and UI preferences. This action cannot be undone.")) return;
-            updateConfigStatus(resetSettingsBtn, configStatus, 'Resetting settings...', 'info', 0, false);
-            try {
-                const response = await fetch(`${API_BASE_URL}/reset_settings`, {
-                    method: 'POST'
-                });
-                if (!response.ok) {
-                    const errorResult = await response.json().catch(() => ({ detail: 'Failed to reset settings on server.' }));
-                    throw new Error(errorResult.detail);
-                }
-                const result = await response.json();
-                updateConfigStatus(resetSettingsBtn, configStatus, result.message + " Reloading page...", 'success', 0, false);
-                setTimeout(() => window.location.reload(true), 2000);
-            } catch (error) {
-                console.error('Error resetting settings:', error);
-                updateConfigStatus(resetSettingsBtn, configStatus, `Reset Error: ${error.message}`, 'error', 0);
-                showNotification(`Error resetting settings: ${error.message}`, 'error');
-            }
+        resetSettingsBtn.addEventListener('click', () => {
+            if (!confirm("Clear UI state saved in this browser and reload?")) return;
+            localStorage.removeItem(UI_STATE_STORAGE_KEY);
+            localStorage.removeItem('uiTheme');
+            showNotification("Local UI state cleared.", "success", 2000);
+            setTimeout(() => window.location.reload(), 250);
         });
     }
 

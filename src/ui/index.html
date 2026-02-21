@@ -165,8 +165,8 @@
                                             </p>
                                         </div>
                                         <div class="col-span-1 md:col-span-2 mt-4 flex items-center gap-4">
-                                            <button id="save-gen-defaults-btn" type="button" class="btn-settings">Save
-                                                Generation Parameters</button>
+                                            <button id="save-gen-defaults-btn" type="button" class="btn-settings">How to
+                                                change server defaults</button>
                                             <span id="gen-defaults-status" class="text-xs hidden"></span>
                                         </div>
                                     </div>
@@ -192,11 +192,10 @@
                                     <div id="server-config-form"
                                         class="mt-4 border-t border-slate-200 dark:border-slate-700 pt-5">
                                         <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">
-                                            These settings are loaded from <code class="code-inline">config.yaml</code>
-                                            via an API call.
-                                            <strong class="font-medium">Restart the server</strong> to apply changes to
-                                            Host, Port, Model, or Path settings if modified here or directly in the
-                                            file.
+                                            These settings are loaded from <code class="code-inline">.env</code> and are
+                                            read-only in the UI.
+                                            Edit <code class="code-inline">.env</code> directly, then
+                                            <strong class="font-medium">restart the server</strong> to apply changes.
                                         </p>
                                         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
                                             <div><label for="config-server-host" class="label-base text-xs">Server
@@ -225,10 +224,10 @@
 
                                             <div
                                                 class="col-span-1 md:col-span-2 mt-4 flex flex-col md:flex-row gap-4 items-center">
-                                                <button id="save-config-btn" type="button" class="btn-settings">Save
-                                                    Server Configuration</button>
+                                                <button id="save-config-btn" type="button" class="btn-settings">How to
+                                                    edit server configuration</button>
                                                 <button id="restart-server-btn" type="button"
-                                                    class="btn-danger w-full md:w-auto hidden">
+                                                    class="btn-danger w-full md:w-auto">
                                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none"
                                                         viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"
                                                         class="w-5 h-5 mr-1.5 inline-block">
@@ -246,10 +245,10 @@
                         </div>
 
                         <div class="card-footer">
-                            <button id="reset-settings-btn" type="button" class="btn-settings">Reset All
-                                Settings</button>
+                            <button id="reset-settings-btn" type="button" class="btn-settings">Clear Local UI
+                                State</button>
                             <div class="text-xs text-slate-500 dark:text-slate-400 ml-2">
-                                Resets settings to their defaults.
+                                Clears browser-only UI preferences and last inputs.
                             </div>
                         </div>
                     </form>

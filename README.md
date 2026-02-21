@@ -1,8 +1,8 @@
-# Kitten TTS Server (FastAPI)
+# KittenTTS FastAPI
 
-**A high-performance, lightweight Text-to-Speech (TTS) server built with FastAPI, wrapping the [KittenTTS v0.8 model](https://github.com/KittenML/KittenTTS).**
+**A high-performance, lightweight Text-to-Speech (TTS) server built with FastAPI, wrapping the onnx [KittenTTS v0.8 model](https://github.com/KittenML/KittenTTS), which can run very efficiently on CPU with optional GPU acceleration.**
 
-This project provides a robust, production-ready interface for the ultra-lightweight KittenTTS engine (15M parameters). It features a modern Web UI, true GPU acceleration via ONNX Runtime, and full OpenAI API compatibility for easy integration into existing workflows.
+This project provides a robust, production-ready interface for the ultra-lightweight KittenTTS model and engine. It features a modern Web UI, true GPU acceleration via ONNX Runtime, and full OpenAI API compatibility for easy integration into existing workflows.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
 [![Python Version](https://img.shields.io/badge/Python-3.13+-blue.svg?style=for-the-badge)](https://www.python.org/downloads/)
@@ -13,6 +13,20 @@ This project provides a robust, production-ready interface for the ultra-lightwe
 [![CUDA Compatible](https://img.shields.io/badge/NVIDIA_CUDA-Compatible-76B900?style=for-the-badge&logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-zone)
 [![API](https://img.shields.io/badge/OpenAI_Compatible_API-Ready-000000?style=for-the-badge&logo=openai&logoColor=white)](https://platform.openai.com/docs/api-reference)
 
+## ✨ Features
+
+Production-ready [FastAPI](https://fastapi.tiangolo.com/) wrapper around [KittenTTS](https://github.com/KittenML/KittenTTS), focused on fast local/self-hosted deployment.
+
+*   **Modern Web UI**: Text input, voice controls, playback, and download.
+*   **OpenAI-Compatible API**: Includes `/v1/audio/speech` and `/v1/audio/voices`.
+*   **GPU Acceleration**: Uses ONNX Runtime GPU providers when available.
+*   **CPU Friendly**: Lightweight model (~15M params, under 25MB).
+*   **Long-Text Support**: Optional chunking and merged output.
+*   **Env-Based Config**: Configure runtime with `.env` and `KITTEN_*` vars.
+*   **Browser UI State**: UI preferences are stored in local browser storage.
+*   **Built-in Voices**: 8 voices included (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo).
+*   **Piper Alternative**: Compact self-hosted TTS with low overhead.
+
 <div align="center">
   <img src="static/screenshot-d.png" alt="Kitten TTS Server Web UI - Dark Mode" width="33%" />
   <img src="static/screenshot-l.png" alt="Kitten TTS Server Web UI - Light Mode" width="33%" />
@@ -20,45 +34,46 @@ This project provides a robust, production-ready interface for the ultra-lightwe
 
 ---
 
-## �️ Overview: Enhanced KittenTTS Generation
+## 🐳 Docker Quickstart
 
-The [KittenTTS model by KittenML](https://github.com/KittenML/KittenTTS) provides a foundation for generating high-quality speech from a model smaller than 25MB. This project elevates that foundation into a production-ready service by providing a robust [FastAPI](https://fastapi.tiangolo.com/) server that makes KittenTTS significantly easier to use, more powerful, and drastically faster.
+Fastest way to run on CPU with the published image:
 
-We solve the complexity of setting up and running the model by offering:
+```bash
+docker run -d \
+  --name kitten-tts-server-cpu \
+  --restart unless-stopped \
+  -e KITTEN_MODEL_REPO_ID="KittenML/kitten-tts-nano-0.8-fp32" \
+  -p 8005:8005 \
+  ghcr.io/richardr1126/kittentts-fastapi-cpu
+```
 
-*   **Modern Web UI**: Easy experimentation, preset loading, and speed adjustment.
-*   **True GPU Acceleration**: High-performance inference for NVIDIA GPUs.
-*   **Large Text Handling**: Intelligently splits long texts into manageable chunks for audiobooks.
-*   **OpenAI Compatibility**: Seamlessly integrate with any app expecting OpenAI's TTS API.
-*   **Built-in Voices**: A fixed list of 8 ready-to-use voices (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo).
+> Works well on Raspberry Pi (64-bit OS) as well.
 
-## 🔥 High-Performance GPU Acceleration
+## Environment Variables (Optional)
 
-A standout feature is the implementation of **high-performance GPU acceleration**, a capability not available in the original KittenTTS project. While the base model is CPU-optimized, this server unlocks the full potential of your hardware:
+Supported environment variables:
 
-*   **Optimized ONNX Runtime Pipeline**: We leverage `onnxruntime-gpu` to move the entire inference process to your NVIDIA graphics card.
-*   **Eliminated I/O Bottlenecks**: The server uses advanced **I/O Binding**. This technique pre-allocates memory directly on the GPU for both model inputs and outputs, drastically reducing the latency caused by copying data between system RAM and the GPU's VRAM.
-*   **True Performance Gains**: This isn't just running the model on the GPU; it's an optimized pipeline designed to minimize latency and maximize throughput.
+*   `KITTEN_SERVER_HOST` (default: `0.0.0.0`)
+*   `KITTEN_SERVER_PORT` (default: `8005`)
+*   `KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR` (default: `false`)
+*   `KITTEN_MODEL_REPO_ID` (default: `KittenML/kitten-tts-nano-0.8-fp32`)
+*   `KITTEN_TTS_DEVICE` (default: `auto`, options: `auto`, `cpu`, `cuda`)
+*   `KITTEN_MODEL_CACHE` (default: `model_cache`)
+*   `KITTEN_GEN_DEFAULT_SPEED` (default: `1.1`)
+*   `KITTEN_GEN_DEFAULT_LANGUAGE` (default: `en`)
+*   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`)
+*   `KITTEN_AUDIO_SAMPLE_RATE` (default: `24000`)
+*   `KITTEN_UI_TITLE` (default: `Kitten TTS Server`)
+*   `KITTEN_UI_SHOW_LANGUAGE_SELECT` (default: `true`)
 
-## 🔄 Alternative to Piper TTS
-
-The [KittenTTS model](https://github.com/KittenML/KittenTTS) serves as an excellent alternative to [Piper TTS](https://github.com/rhasspy/piper) for fast generation on limited compute.
-
-**KittenTTS Model Advantages:**
-*   **Extreme Efficiency**: Just 15 million parameters and under 25MB.
-*   **Universal Compatibility**: CPU-optimized to run anywhere.
-*   **Real-time Performance**: Optimized for low-latency speech synthesis even on resource-constrained hardware.
-
----
-
-## 🛠️ Installation
+## 🛠️ Local Installation
 
 ### 1. Prerequisites
 
 *   **Python:** 3.13+
 *   **uv:** [Install uv](https://docs.astral.sh/uv/getting-started/installation/)
 *   **eSpeak NG:** Required for phonemization.
-    *   **Linux:** `sudo apt install espeak-ng`
+    *   **Linux / Raspberry Pi:** `sudo apt install -y espeak-ng libsndfile1 ffmpeg`
     *   **macOS/Windows:** Install via your package manager or official installers.
 
 ### 2. Local Setup
@@ -71,6 +86,9 @@ cd KittenTTS-FastAPI
 # Workaround for uv lock file issue with kittentts incorrect wheel filename
 export UV_SKIP_WHEEL_FILENAME_CHECK=1
 
+# Create local environment config
+cp .env.example .env
+
 # Sync dependencies and create virtual environment
 uv sync
 
@@ -78,35 +96,24 @@ uv sync
 uv run src/server.py
 ```
 
-After startup, the server logs the exact UI URL to visit (typically `http://localhost:8005`).
+After startup, the server logs the exact UI URL to visit (typically `http://localhost:8005/`).
 
-### 🍓 Raspberry Pi 5 Support
-
-Raspberry Pi 5 works out-of-the-box with the standard Linux installation. 
-**Installation Steps:**
-```bash
-export UV_SKIP_WHEEL_FILENAME_CHECK=1
-sudo apt update && sudo apt install -y espeak-ng libsndfile1 ffmpeg python3-pip
-uv sync
-uv run src/server.py
-```
-
----
-
-## 🐳 Docker Deployment
+## 🐳 Docker Compose Setup
 
 The fastest way to deploy is using Docker Compose.
+Create `.env` first (`cp .env.example .env`), then run:
 
-### NVIDIA GPU (Recommended)
-Make sure you have the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed.
+### CPU (Default)
 
 ```bash
 docker compose up -d --build
 ```
 
-### CPU Only
+### NVIDIA GPU
+Make sure you have the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html) installed.
+
 ```bash
-docker compose -f docker-compose-cpu.yml up -d --build
+docker compose -f docker-compose-gpu.yml up -d --build
 ```
 
 ---
@@ -127,6 +134,11 @@ curl http://localhost:8005/v1/audio/speech \
   --output speech.mp3
 ```
 
+### Voice List Endpoint (`/v1/audio/voices`)
+```bash
+curl http://localhost:8005/v1/audio/voices
+```
+
 ### Interactive Docs
 Visit `http://localhost:8005/docs` for the full Swagger UI.
 
@@ -134,11 +146,14 @@ Visit `http://localhost:8005/docs` for the full Swagger UI.
 
 ## ⚙️ Configuration
 
-Settings are stored in `config.yaml`. The server will generate a default one on first run.
+Server settings are loaded from environment variables (`.env` for local/dev).
+Copy `.env.example` to `.env` and edit values as needed, then restart the server.
 
-*   **`tts_engine.device`**: Set to `auto`, `cuda`, or `cpu`.
-*   **`audio_output.format`**: Default format (`wav`, `mp3`, `opus`).
-*   **`ui_state`**: Automatically stores your last used text, voice, and theme.
+*   **`KITTEN_TTS_DEVICE`**: `auto`, `cuda`, or `cpu`.
+*   **`KITTEN_AUDIO_FORMAT`**: `wav`, `mp3`, or `opus`.
+*   **`KITTEN_MODEL_REPO_ID`**: Hugging Face model repo.
+*   **`KITTEN_MODEL_CACHE`**: Model cache directory path.
+*   **UI state** (last text, voice, theme) is stored in browser `localStorage`, not on the API server.
 
 ---
 

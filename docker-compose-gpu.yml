@@ -1,0 +1,38 @@
+services:
+  kitten-tts-server:
+    build:
+      args:
+      # Can be nvidia or cpu; Default is Nvidia
+        - RUNTIME=nvidia
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PORT:-8005}:8005"
+    env_file:
+      - .env
+    
+    # --- GPU Support (NVIDIA) ---
+    # The 'deploy' key is the modern way to request GPU resources.
+    # If you get a 'CDI device injection failed' error, comment out the 'deploy' section
+    # and uncomment the 'runtime: nvidia' line below.
+    
+    # Method 1: Modern Docker Compose (Recommended)
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+    # Method 2: Legacy Docker Compose (for older setups)
+    # runtime: nvidia
+
+    restart: unless-stopped
+    environment:
+      # Enable faster Hugging Face downloads inside the container
+      - HF_HUB_ENABLE_HF_TRANSFER=1
+      # Make NVIDIA GPUs visible and specify capabilities for PyTorch
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+
