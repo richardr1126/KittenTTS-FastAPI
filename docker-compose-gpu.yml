@@ -1,5 +1,6 @@
 services:
-  kitten-tts-server:
+  kittentts-fastapi:
+    container_name: kittentts-fastapi
     build:
       args:
       # Can be nvidia or cpu; Default is Nvidia

@@ -40,9 +40,8 @@ Production-ready [FastAPI](https://fastapi.tiangolo.com/) wrapper around [Kitten
 Fastest way to run on CPU with the published image:
 
 ```bash
-docker run -d \
-  --name kitten-tts-server-cpu \
-  --restart unless-stopped \
+docker run -it --rm \
+  --name kittentts-fastapi \
   -e KITTEN_MODEL_REPO_ID="KittenML/kitten-tts-nano-0.8-fp32" \
   -p 8005:8005 \
   ghcr.io/richardr1126/kittentts-fastapi-cpu

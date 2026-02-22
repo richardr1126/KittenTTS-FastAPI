@@ -1,5 +1,6 @@
 services:
-  kitten-tts-server:
+  kittentts-fastapi:
+    container_name: kittentts-fastapi
     build:
       context: .
       dockerfile: Dockerfile
