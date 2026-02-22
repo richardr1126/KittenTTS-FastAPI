@@ -1,5 +1,6 @@
-__pycache__
-*.log
-.venv
+*__pycache__*
+.pytest_cache/
 model_cache/
+
+.venv/
 .env

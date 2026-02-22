@@ -4,7 +4,7 @@ import numpy as np
 import phonemizer
 import soundfile as sf
 import onnxruntime as ort
-from .preprocess import TextPreprocessor
+from nlp import TextPreprocessor
 
 logger = logging.getLogger(__name__)
 
@@ -232,11 +232,23 @@ class KittenTTS_1_Onnx:
         }
     
     def generate(self, text: str, voice: str = "expr-voice-5-m", speed: float = 1.0, clean_text: bool=True) -> np.ndarray:
-        out_chunks = []
         if clean_text:
             text = self.preprocessor(text)
-        for text_chunk in chunk_text(text):
+
+        if not text or not text.strip():
+            raise ValueError("Input text contained no speakable content after preprocessing.")
+
+        prepared_chunks = chunk_text(text)
+        if not prepared_chunks:
+            raise ValueError("No speakable text chunks were produced from the input.")
+
+        out_chunks = []
+        for text_chunk in prepared_chunks:
             out_chunks.append(self.generate_single_chunk(text_chunk, voice, speed))
+
+        if not out_chunks:
+            raise ValueError("Audio generation failed because no valid text chunks were available.")
+
         return np.concatenate(out_chunks, axis=-1)
 
     def generate_single_chunk(self, text: str, voice: str = "expr-voice-5-m", speed: float = 1.0) -> np.ndarray:

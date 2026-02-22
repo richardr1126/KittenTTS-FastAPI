@@ -43,6 +43,11 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "format": "wav",
         "sample_rate": 24000,
     },
+    "text_processing": {
+        "filter_table_artifacts": True,
+        "filter_reference_artifacts": True,
+        "filter_symbol_noise": True,
+    },
     "ui": {
         "title": "Kitten TTS Server",
         "show_language_select": True,
@@ -60,6 +65,9 @@ ENV_KEY_MAP: Dict[str, str] = {
     "generation_defaults.language": "KITTEN_GEN_DEFAULT_LANGUAGE",
     "audio_output.format": "KITTEN_AUDIO_FORMAT",
     "audio_output.sample_rate": "KITTEN_AUDIO_SAMPLE_RATE",
+    "text_processing.filter_table_artifacts": "KITTEN_FILTER_TABLE_ARTIFACTS",
+    "text_processing.filter_reference_artifacts": "KITTEN_FILTER_REFERENCE_ARTIFACTS",
+    "text_processing.filter_symbol_noise": "KITTEN_FILTER_SYMBOL_NOISE",
     "ui.title": "KITTEN_UI_TITLE",
     "ui.show_language_select": "KITTEN_UI_SHOW_LANGUAGE_SELECT",
 }

@@ -4,8 +4,11 @@ A comprehensive text preprocessing library for NLP pipelines.
 """
 
 import re
+import logging
 import unicodedata
-from typing import Optional
+from typing import Dict, Optional, Tuple, Set, List
+
+logger = logging.getLogger(__name__)
 
 
 # ─────────────────────────────────────────────
@@ -194,6 +197,25 @@ _RE_DECADE   = re.compile(r"\b(\d{1,3})0s\b")
 
 # Leading decimal (no digit before the dot): .5, .75
 _RE_LEAD_DEC = re.compile(r"(?<!\d)\.([\d])")
+
+# Noisy OCR/table/reference artifacts
+_RE_TABLE_SEPARATOR_LINE = re.compile(
+    r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)+\|?\s*$"
+)
+_RE_CITATION_BRACKETS = re.compile(
+    r"\[(?:\s*(?:\d+|[ivxlcdm]+)(?:\s*[,;]\s*(?:\d+|[ivxlcdm]+))*\s*)\]",
+    re.IGNORECASE,
+)
+_RE_PAREN_STRUCT_REF = re.compile(
+    r"\((?:see\s+)?(?:fig(?:ure)?|table|eq(?:uation)?)s?\.?\s*[\d\w,.\- ]*\)",
+    re.IGNORECASE,
+)
+_RE_CAPTION_PREFIX = re.compile(
+    r"(?im)^\s*(?:fig(?:ure)?|table|eq(?:uation)?)\.?\s*\d+[a-z]?(?:\s*[:.\-])\s*"
+)
+_RE_SYMBOL_RUN = re.compile(r"[_|~=]{3,}")
+_RE_SEPARATOR_RUN = re.compile(r"(?<!\d)-{3,}(?!\d)")
+_RE_PUNCT_CLUSTER = re.compile(r"[^\w\s]{4,}")
 
 
 # ─────────────────────────────────────────────
@@ -714,6 +736,90 @@ def remove_stopwords(text: str, stopwords: Optional[set] = None) -> str:
     return " ".join(t for t in tokens if t.lower() not in stopwords)
 
 
+def _looks_like_pipe_table_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    if _RE_TABLE_SEPARATOR_LINE.match(stripped):
+        return True
+
+    pipe_count = stripped.count("|")
+    if pipe_count < 2:
+        return False
+    if not (
+        stripped.startswith("|")
+        or stripped.endswith("|")
+        or re.search(r"\s\|\s", stripped) is not None
+    ):
+        return False
+
+    cells = [c.strip() for c in stripped.strip("|").split("|")]
+    non_empty_cells = sum(1 for c in cells if c)
+    return non_empty_cells >= 2
+
+
+def filter_table_artifacts(text: str) -> Tuple[str, int]:
+    """
+    Remove markdown/pipe table rows and separator lines.
+    Returns (filtered_text, removed_line_count).
+    """
+    kept_lines = []
+    removed_line_count = 0
+    for line in text.splitlines():
+        if _looks_like_pipe_table_line(line):
+            removed_line_count += 1
+            continue
+        kept_lines.append(line)
+    return "\n".join(kept_lines), removed_line_count
+
+
+def filter_reference_artifacts(text: str) -> Tuple[str, int]:
+    """
+    Remove or normalize common reference/citation artifacts found in OCR text.
+    Returns (filtered_text, replacement_count).
+    """
+    replacements = 0
+
+    text, removed_citations = _RE_CITATION_BRACKETS.subn(" ", text)
+    replacements += removed_citations
+
+    text, removed_parenthetical_refs = _RE_PAREN_STRUCT_REF.subn(" ", text)
+    replacements += removed_parenthetical_refs
+
+    # Drop figure/table/equation caption prefixes but keep caption content.
+    text, removed_caption_prefixes = _RE_CAPTION_PREFIX.subn("", text)
+    replacements += removed_caption_prefixes
+
+    # Normalize common inline abbreviations for better pronunciation.
+    text = re.sub(r"\bfig\.\s*(\d+[a-z]?)\b", r"figure \1", text, flags=re.IGNORECASE)
+    text = re.sub(r"\beq\.\s*(\d+[a-z]?)\b", r"equation \1", text, flags=re.IGNORECASE)
+
+    return text, replacements
+
+
+def filter_symbol_noise(text: str) -> Tuple[str, int]:
+    """
+    Collapse long non-speech symbol runs and repeated delimiters.
+    Returns (filtered_text, replacement_count).
+    """
+    replacements = 0
+
+    text, count = _RE_SYMBOL_RUN.subn(" ", text)
+    replacements += count
+
+    text, count = _RE_SEPARATOR_RUN.subn(" ", text)
+    replacements += count
+
+    text, count = _RE_PUNCT_CLUSTER.subn(" ", text)
+    replacements += count
+
+    # Collapse repeated commas/semicolons/colons into a single token.
+    text, count = re.subn(r"([,;:])\1{1,}", r"\1", text)
+    replacements += count
+
+    return text, replacements
+
+
 # ─────────────────────────────────────────────
 # Pipeline helper
 # ─────────────────────────────────────────────
@@ -766,6 +872,9 @@ class TextPreprocessor:
         normalize_unicode: bool = True,
         remove_accents: bool = False,
         remove_extra_whitespace: bool = True,
+        filter_table_artifacts: bool = True,
+        filter_reference_artifacts: bool = True,
+        filter_symbol_noise: bool = True,
     ):
         self.config = {k: v for k, v in locals().items() if k != "self"}
         self._stopwords = stopwords
@@ -774,10 +883,36 @@ class TextPreprocessor:
         return self.process(text)
 
     def process(self, text: str) -> str:
+        cleaned, _ = self.process_with_metadata(text)
+        return cleaned
+
+    def process_with_metadata(self, text: str) -> Tuple[str, Dict[str, int]]:
+        original_length = len(text or "")
+        metadata = {
+            "input_length": original_length,
+            "output_length": 0,
+            "table_lines_removed": 0,
+            "reference_fragments_removed": 0,
+            "symbol_noise_collapsed": 0,
+        }
+
+        if text is None:
+            text = ""
+
         cfg = self.config
 
         if cfg["normalize_unicode"]:
             text = normalize_unicode(text)
+        # Remove OCR/document artifacts before number/url/unit expansion.
+        if cfg["filter_table_artifacts"]:
+            text, removed_lines = filter_table_artifacts(text)
+            metadata["table_lines_removed"] = removed_lines
+        if cfg["filter_reference_artifacts"]:
+            text, removed_refs = filter_reference_artifacts(text)
+            metadata["reference_fragments_removed"] = removed_refs
+        if cfg["filter_symbol_noise"]:
+            text, collapsed_symbols = filter_symbol_noise(text)
+            metadata["symbol_noise_collapsed"] = collapsed_symbols
         if cfg["remove_html"]:
             text = remove_html_tags(text)
         if cfg["remove_urls"]:
@@ -839,7 +974,329 @@ class TextPreprocessor:
         if cfg["remove_extra_whitespace"]:
             text = remove_extra_whitespace(text)
 
-        return text
+        metadata["output_length"] = len(text)
+        return text, metadata
+
+
+# --- Text Chunking Utilities ---
+# Set of common abbreviations to help with sentence splitting.
+ABBREVIATIONS: Set[str] = {
+    "mr.",
+    "mrs.",
+    "ms.",
+    "dr.",
+    "prof.",
+    "rev.",
+    "hon.",
+    "st.",
+    "etc.",
+    "e.g.",
+    "i.e.",
+    "vs.",
+    "approx.",
+    "apt.",
+    "dept.",
+    "fig.",
+    "gen.",
+    "gov.",
+    "inc.",
+    "jr.",
+    "sr.",
+    "ltd.",
+    "no.",
+    "p.",
+    "pp.",
+    "vol.",
+    "op.",
+    "cit.",
+    "ca.",
+    "cf.",
+    "ed.",
+    "esp.",
+    "et.",
+    "al.",
+    "ibid.",
+    "id.",
+    "inf.",
+    "sup.",
+    "viz.",
+    "sc.",
+    "fl.",
+    "d.",
+    "b.",
+    "r.",
+    "c.",
+    "v.",
+    "u.s.",
+    "u.k.",
+    "a.m.",
+    "p.m.",
+    "a.d.",
+    "b.c.",
+}
+
+# Regex patterns (pre-compiled for efficiency in text processing).
+NUMBER_DOT_NUMBER_PATTERN = re.compile(
+    r"(?<!\d\.)\d*\.\d+"
+)  # Matches numbers like 3.14, .5, 123.456
+VERSION_PATTERN = re.compile(
+    r"[vV]?\d+(\.\d+)+"
+)  # Matches version numbers like v1.0.2, 2.3.4
+# Pattern to find potential sentence endings (punctuation followed by quote/space/end of string).
+POTENTIAL_END_PATTERN = re.compile(r'([.!?])(["\']?)(\s+|$)')
+# Pattern to detect start-of-line bullet points or numbered lists.
+BULLET_POINT_PATTERN = re.compile(r"(?:^|\n)\s*([-•*]|\d+\.)\s+")
+# Placeholder for non-verbal cues or special instructions within text (e.g., (laughs), (sighs)).
+NON_VERBAL_CUE_PATTERN = re.compile(r"(\([\w\s'-]+\))")
+
+
+def _is_valid_sentence_end(text: str, period_index: int) -> bool:
+    """
+    Checks if a period at a given index in the text is likely a valid sentence terminator,
+    rather than part of an abbreviation, number, or version string.
+    """
+    word_start_before_period = period_index - 1
+    scan_limit = max(0, period_index - 10)
+    while (
+        word_start_before_period >= scan_limit
+        and not text[word_start_before_period].isspace()
+    ):
+        word_start_before_period -= 1
+    word_before_period = text[word_start_before_period + 1 : period_index + 1].lower()
+    if word_before_period in ABBREVIATIONS:
+        return False
+
+    context_start = max(0, period_index - 10)
+    context_end = min(len(text), period_index + 10)
+    context_segment = text[context_start:context_end]
+    relative_period_index_in_context = period_index - context_start
+
+    for pattern in [NUMBER_DOT_NUMBER_PATTERN, VERSION_PATTERN]:
+        for match in pattern.finditer(context_segment):
+            if match.start() <= relative_period_index_in_context < match.end():
+                is_last_char_of_numeric_match = (
+                    relative_period_index_in_context == match.end() - 1
+                )
+                is_followed_by_space_or_eos = (
+                    period_index + 1 == len(text) or text[period_index + 1].isspace()
+                )
+                if not (is_last_char_of_numeric_match and is_followed_by_space_or_eos):
+                    return False
+    return True
+
+
+def _split_text_by_punctuation(text: str) -> List[str]:
+    """
+    Splits text into sentences based on common punctuation marks (.!?),
+    while trying to avoid splitting on periods used in abbreviations or numbers.
+    """
+    sentences: List[str] = []
+    last_split_index = 0
+    text_length = len(text)
+
+    for match in POTENTIAL_END_PATTERN.finditer(text):
+        punctuation_char_index = match.start(1)
+        punctuation_char = text[punctuation_char_index]
+        slice_end_after_punctuation = match.start(1) + 1 + len(match.group(2) or "")
+
+        if punctuation_char in ["!", "?"]:
+            current_sentence_text = text[
+                last_split_index:slice_end_after_punctuation
+            ].strip()
+            if current_sentence_text:
+                sentences.append(current_sentence_text)
+            last_split_index = match.end()
+            continue
+
+        if punctuation_char == ".":
+            if (
+                punctuation_char_index > 0 and text[punctuation_char_index - 1] == "."
+            ) or (
+                punctuation_char_index < text_length - 1
+                and text[punctuation_char_index + 1] == "."
+            ):
+                continue
+
+            if _is_valid_sentence_end(text, punctuation_char_index):
+                current_sentence_text = text[
+                    last_split_index:slice_end_after_punctuation
+                ].strip()
+                if current_sentence_text:
+                    sentences.append(current_sentence_text)
+                last_split_index = match.end()
+
+    remaining_text_segment = text[last_split_index:].strip()
+    if remaining_text_segment:
+        sentences.append(remaining_text_segment)
+
+    sentences = [s for s in sentences if s]
+    if not sentences and text.strip():
+        return [text.strip()]
+    return sentences
+
+
+def split_into_sentences(text: str) -> List[str]:
+    """
+    Splits a given text into sentences. Handles normalization of line breaks
+    and considers bullet points as potential sentence separators.
+    This is the primary entry point for sentence splitting.
+    """
+    if not text or text.isspace():
+        return []
+
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    bullet_point_matches = list(BULLET_POINT_PATTERN.finditer(text))
+
+    if bullet_point_matches:
+        logger.debug("Bullet points detected in text; splitting by bullet items.")
+        processed_sentences: List[str] = []
+        current_position = 0
+        for i, bullet_match in enumerate(bullet_point_matches):
+            bullet_actual_start_index = bullet_match.start()
+            if i == 0 and bullet_actual_start_index > current_position:
+                pre_bullet_segment = text[
+                    current_position:bullet_actual_start_index
+                ].strip()
+                if pre_bullet_segment:
+                    processed_sentences.extend(
+                        s for s in _split_text_by_punctuation(pre_bullet_segment) if s
+                    )
+
+            next_bullet_start_index = (
+                bullet_point_matches[i + 1].start()
+                if i + 1 < len(bullet_point_matches)
+                else len(text)
+            )
+            bullet_item_segment = text[
+                bullet_actual_start_index:next_bullet_start_index
+            ].strip()
+            if bullet_item_segment:
+                processed_sentences.append(bullet_item_segment)
+            current_position = next_bullet_start_index
+
+        if current_position < len(text):
+            post_bullet_segment = text[current_position:].strip()
+            if post_bullet_segment:
+                processed_sentences.extend(
+                    s for s in _split_text_by_punctuation(post_bullet_segment) if s
+                )
+        return [s for s in processed_sentences if s]
+
+    logger.debug(
+        "No bullet points detected; using punctuation-based sentence splitting."
+    )
+    return _split_text_by_punctuation(text)
+
+
+def _segment_text_for_chunking(full_text: str) -> List[Tuple[Optional[str], str]]:
+    """
+    Internal helper to segment text by non-verbal cues (e.g., (laughs)) and then
+    further split those segments into sentences.
+    Assigns a placeholder "tag" (here, None or empty string) as this system is single-speaker.
+    The tuple structure (tag, sentence) is maintained for compatibility with chunking logic
+    that might expect it, even if the tag itself isn't used for speaker differentiation.
+
+    Args:
+        full_text: The complete input text.
+
+    Returns:
+        A list of tuples, where each tuple is (placeholder_tag, sentence_text).
+    """
+    if not full_text or full_text.isspace():
+        return []
+
+    placeholder_tag: Optional[str] = None
+    segmented_with_tags: List[Tuple[Optional[str], str]] = []
+    parts_and_cues = NON_VERBAL_CUE_PATTERN.split(full_text)
+
+    for part in parts_and_cues:
+        if not part or part.isspace():
+            continue
+        if NON_VERBAL_CUE_PATTERN.fullmatch(part):
+            segmented_with_tags.append((placeholder_tag, part.strip()))
+        else:
+            sentences_from_part = split_into_sentences(part.strip())
+            for sentence in sentences_from_part:
+                if sentence:
+                    segmented_with_tags.append((placeholder_tag, sentence))
+
+    if not segmented_with_tags and full_text.strip():
+        segmented_with_tags.append((placeholder_tag, full_text.strip()))
+
+    logger.debug(
+        "Preprocessed text into %d segments/sentences.", len(segmented_with_tags)
+    )
+    return segmented_with_tags
+
+
+def chunk_text_by_sentences(
+    full_text: str,
+    chunk_size: int,
+) -> List[str]:
+    """
+    Chunks text into manageable pieces for TTS processing, respecting sentence boundaries
+    and a maximum chunk character length. Designed for single-speaker text, but maintains
+    a structure that can handle segments (like non-verbal cues) separately.
+
+    Args:
+        full_text: The complete text to be chunked.
+        chunk_size: The desired maximum character length for each chunk.
+                    Sentences longer than this will form their own chunk.
+
+    Returns:
+        A list of text chunks, ready for TTS.
+    """
+    if not full_text or full_text.isspace():
+        return []
+    if chunk_size <= 0:
+        chunk_size = float("inf")
+
+    processed_segments = _segment_text_for_chunking(full_text)
+    if not processed_segments:
+        return []
+
+    text_chunks: List[str] = []
+    current_chunk_sentences: List[str] = []
+    current_chunk_length = 0
+
+    for _, segment_text in processed_segments:
+        segment_len = len(segment_text)
+
+        if not current_chunk_sentences:
+            current_chunk_sentences.append(segment_text)
+            current_chunk_length = segment_len
+        elif current_chunk_length + 1 + segment_len <= chunk_size:
+            current_chunk_sentences.append(segment_text)
+            current_chunk_length += 1 + segment_len
+        else:
+            if current_chunk_sentences:
+                text_chunks.append(" ".join(current_chunk_sentences))
+            current_chunk_sentences = [segment_text]
+            current_chunk_length = segment_len
+
+        if current_chunk_length > chunk_size and len(current_chunk_sentences) == 1:
+            logger.info(
+                "A single segment (length %d) exceeds chunk_size %d. It will form its own chunk.",
+                current_chunk_length,
+                chunk_size,
+            )
+            text_chunks.append(" ".join(current_chunk_sentences))
+            current_chunk_sentences = []
+            current_chunk_length = 0
+
+    if current_chunk_sentences:
+        text_chunks.append(" ".join(current_chunk_sentences))
+
+    text_chunks = [chunk for chunk in text_chunks if chunk.strip()]
+
+    if not text_chunks and full_text.strip():
+        logger.warning(
+            "Text chunking resulted in zero chunks despite non-empty input. Returning full text as one chunk."
+        )
+        return [full_text.strip()]
+
+    logger.info("Text chunking complete. Generated %d chunk(s).", len(text_chunks))
+    return text_chunks
 
 
 # ─────────────────────────────────────────────

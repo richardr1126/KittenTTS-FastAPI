@@ -41,6 +41,7 @@ from config import (
 )
 
 import engine  # TTS Engine interface
+import nlp
 from models import (  # Pydantic models
     CustomTTSRequest,
     ErrorResponse,
@@ -58,6 +59,14 @@ class OpenAISpeechRequest(BaseModel):
     response_format: Literal["wav", "opus", "mp3"] = "wav"  # Add "mp3"
     speed: float = 1.0
     seed: Optional[int] = None
+
+
+_OPENAI_ROUTE_DEFAULT_SPLIT_TEXT = bool(
+    CustomTTSRequest.model_fields["split_text"].default
+)
+_OPENAI_ROUTE_DEFAULT_CHUNK_SIZE = int(
+    CustomTTSRequest.model_fields["chunk_size"].default
+)
 
 
 logging.basicConfig(
@@ -88,6 +97,252 @@ def _log_access_urls(host: str, port: int):
     if display_host != host:
         logger.info("  Listening:  http://%s:%s", host, port)
     logger.info("========================================")
+
+
+def _preprocess_input_text(
+    raw_text: str,
+    *,
+    context_label: str,
+    perf_monitor: Optional[utils.PerformanceMonitor] = None,
+) -> str:
+    cleaned_text, preprocess_meta = engine.preprocess_text(raw_text)
+    logger.info(
+        "%s preprocessing complete: raw_len=%d, cleaned_len=%d, table_lines_removed=%d, reference_fragments_removed=%d, symbol_noise_collapsed=%d",
+        context_label,
+        len(raw_text),
+        preprocess_meta.get("output_length", 0),
+        preprocess_meta.get("table_lines_removed", 0),
+        preprocess_meta.get("reference_fragments_removed", 0),
+        preprocess_meta.get("symbol_noise_collapsed", 0),
+    )
+    if perf_monitor is not None:
+        perf_monitor.record("Input text preprocessed")
+
+    if not engine.is_speakable_text(cleaned_text):
+        raise HTTPException(
+            status_code=400,
+            detail="Input text contained no speakable content after cleanup. Remove table/reference artifacts and retry.",
+        )
+    return cleaned_text
+
+
+def _resolve_text_chunks(
+    raw_text: str,
+    *,
+    split_text: bool,
+    chunk_size: int,
+    context_label: str,
+    precleaned_text: Optional[str] = None,
+    perf_monitor: Optional[utils.PerformanceMonitor] = None,
+) -> List[str]:
+    if split_text and len(raw_text) > (chunk_size * 1.5):
+        logger.info(f"Splitting text into chunks of size ~{chunk_size}.")
+        text_chunks = nlp.chunk_text_by_sentences(raw_text, chunk_size)
+        if perf_monitor is not None:
+            perf_monitor.record(f"Text split into {len(text_chunks)} chunks")
+    else:
+        text_chunks = [precleaned_text if precleaned_text is not None else raw_text]
+        logger.info(
+            "Processing text as a single chunk (splitting not enabled or text too short)."
+        )
+
+    text_chunks = [chunk for chunk in text_chunks if chunk and chunk.strip()]
+    if not text_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="Input text contained no usable speakable chunks after cleanup.",
+        )
+
+    if split_text:
+        cleaned_chunks = []
+        for idx, chunk in enumerate(text_chunks, start=1):
+            cleaned_chunk, _ = engine.preprocess_text(chunk)
+            if engine.is_speakable_text(cleaned_chunk):
+                cleaned_chunks.append(cleaned_chunk)
+            else:
+                logger.info(
+                    "%s dropped unspeakable chunk %d/%d after cleanup.",
+                    context_label,
+                    idx,
+                    len(text_chunks),
+                )
+        if perf_monitor is not None:
+            perf_monitor.record(
+                f"Chunk-level cleanup kept {len(cleaned_chunks)}/{len(text_chunks)} chunks"
+            )
+        text_chunks = cleaned_chunks
+
+    if not text_chunks:
+        raise HTTPException(
+            status_code=400,
+            detail="Input text contained no usable speakable chunks after cleanup.",
+        )
+
+    return text_chunks
+
+
+def _synthesize_chunks_and_merge(
+    *,
+    text_chunks: List[str],
+    voice: str,
+    speed: float,
+    perf_monitor: Optional[utils.PerformanceMonitor] = None,
+) -> tuple[np.ndarray, int]:
+    all_audio_segments_np: List[np.ndarray] = []
+    engine_output_sample_rate: Optional[int] = None
+
+    for i, chunk in enumerate(text_chunks):
+        logger.info(f"Synthesizing chunk {i+1}/{len(text_chunks)}...")
+        try:
+            chunk_audio_np, chunk_sr_from_engine = engine.synthesize(
+                text=chunk,
+                voice=voice,
+                speed=speed,
+                clean_text=False,
+            )
+            if perf_monitor is not None:
+                perf_monitor.record(f"Engine synthesized chunk {i+1}")
+
+            if chunk_audio_np is None or chunk_sr_from_engine is None:
+                error_detail = (
+                    f"TTS engine failed to synthesize audio for chunk {i+1}. "
+                    "The cleaned text may still be unspeakable."
+                )
+                logger.error(error_detail)
+                raise HTTPException(status_code=500, detail=error_detail)
+
+            if engine_output_sample_rate is None:
+                engine_output_sample_rate = chunk_sr_from_engine
+            elif engine_output_sample_rate != chunk_sr_from_engine:
+                logger.warning(
+                    f"Inconsistent sample rate from engine: chunk {i+1} ({chunk_sr_from_engine}Hz) "
+                    f"differs from previous ({engine_output_sample_rate}Hz). Using first chunk's SR."
+                )
+
+            all_audio_segments_np.append(chunk_audio_np)
+
+        except HTTPException:
+            raise
+        except Exception as e_chunk:
+            error_detail = f"Error processing audio chunk {i+1}: {str(e_chunk)}"
+            logger.error(error_detail, exc_info=True)
+            raise HTTPException(status_code=500, detail=error_detail)
+
+    if not all_audio_segments_np:
+        logger.error("No audio segments were successfully generated.")
+        raise HTTPException(
+            status_code=500, detail="Audio generation resulted in no output."
+        )
+
+    if engine_output_sample_rate is None:
+        logger.error("Engine output sample rate could not be determined.")
+        raise HTTPException(
+            status_code=500, detail="Failed to determine engine sample rate."
+        )
+
+    try:
+        if len(all_audio_segments_np) > 1:
+            silence_duration_ms = 200
+            silence_samples = int(
+                silence_duration_ms / 1000 * engine_output_sample_rate
+            )
+            silence_array = np.zeros(silence_samples, dtype=np.float32)
+            crossfade_samples = int(0.01 * engine_output_sample_rate)
+
+            merged_audio = []
+            for i, chunk in enumerate(all_audio_segments_np):
+                if i == 0:
+                    merged_audio.append(chunk)
+                else:
+                    merged_audio.append(silence_array)
+                    if (
+                        len(merged_audio[-2]) >= crossfade_samples
+                        and len(chunk) >= crossfade_samples
+                    ):
+                        fade_out = np.linspace(1, 0, crossfade_samples)
+                        merged_audio[-2][-crossfade_samples:] *= fade_out
+
+                        fade_in = np.linspace(0, 1, crossfade_samples)
+                        chunk_copy = chunk.copy()
+                        chunk_copy[:crossfade_samples] *= fade_in
+                        merged_audio.append(chunk_copy)
+                    else:
+                        merged_audio.append(chunk)
+
+            final_audio_np = np.concatenate(merged_audio)
+            logger.debug(
+                f"Added {silence_duration_ms}ms silence between {len(all_audio_segments_np)} chunks"
+            )
+        else:
+            final_audio_np = all_audio_segments_np[0]
+
+        if perf_monitor is not None:
+            perf_monitor.record("All audio chunks processed and concatenated")
+
+    except ValueError as e_concat:
+        logger.error(f"Audio concatenation failed: {e_concat}", exc_info=True)
+        for idx, seg in enumerate(all_audio_segments_np):
+            logger.error(f"Segment {idx} shape: {seg.shape}, dtype: {seg.dtype}")
+        raise HTTPException(
+            status_code=500, detail=f"Audio concatenation error: {e_concat}"
+        )
+
+    return final_audio_np, engine_output_sample_rate
+
+
+def _generate_audio_bytes(
+    *,
+    raw_text: str,
+    voice: str,
+    speed: float,
+    output_format: str,
+    target_sample_rate: int,
+    split_text: bool,
+    chunk_size: int,
+    context_label: str,
+    perf_monitor: Optional[utils.PerformanceMonitor] = None,
+) -> bytes:
+    cleaned_text = _preprocess_input_text(
+        raw_text, context_label=context_label, perf_monitor=perf_monitor
+    )
+    text_chunks = _resolve_text_chunks(
+        raw_text,
+        split_text=split_text,
+        chunk_size=chunk_size,
+        context_label=context_label,
+        precleaned_text=cleaned_text,
+        perf_monitor=perf_monitor,
+    )
+    logger.info("%s generation will synthesize %d chunk(s).", context_label, len(text_chunks))
+
+    final_audio_np, engine_output_sample_rate = _synthesize_chunks_and_merge(
+        text_chunks=text_chunks,
+        voice=voice,
+        speed=speed,
+        perf_monitor=perf_monitor,
+    )
+
+    encoded_audio_bytes = utils.encode_audio(
+        audio_array=final_audio_np,
+        sample_rate=engine_output_sample_rate,
+        output_format=output_format,
+        target_sample_rate=target_sample_rate,
+    )
+    if perf_monitor is not None:
+        perf_monitor.record(
+            f"Final audio encoded to {output_format} (target SR: {target_sample_rate}Hz from engine SR: {engine_output_sample_rate}Hz)"
+        )
+
+    if encoded_audio_bytes is None or len(encoded_audio_bytes) < 100:
+        logger.error(
+            f"Failed to encode final audio to format: {output_format} or output is too small ({len(encoded_audio_bytes or b'')} bytes)."
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to encode audio to {output_format} or generated invalid audio.",
+        )
+
+    return encoded_audio_bytes
 
 
 @asynccontextmanager
@@ -314,159 +569,30 @@ async def custom_tts_endpoint(
         f"TTS params: speed={request.speed}, split={request.split_text}, chunk_size={request.chunk_size}"
     )
     logger.debug(f"Input text (first 100 chars): '{request.text[:100]}...'")
-
     perf_monitor.record("Parameters resolved")
 
-    all_audio_segments_np: List[np.ndarray] = []
-    final_output_sample_rate = get_audio_sample_rate()
-    engine_output_sample_rate: Optional[int] = None
-
-    if request.split_text and len(request.text) > (
-        request.chunk_size * 1.5 if request.chunk_size else 120 * 1.5
-    ):
-        chunk_size_to_use = (
-            request.chunk_size if request.chunk_size is not None else 120
-        )
-        logger.info(f"Splitting text into chunks of size ~{chunk_size_to_use}.")
-        text_chunks = utils.chunk_text_by_sentences(request.text, chunk_size_to_use)
-        perf_monitor.record(f"Text split into {len(text_chunks)} chunks")
-    else:
-        text_chunks = [request.text]
-        logger.info(
-            "Processing text as a single chunk (splitting not enabled or text too short)."
-        )
-
-    if not text_chunks:
-        raise HTTPException(
-            status_code=400, detail="Text processing resulted in no usable chunks."
-        )
-
-    for i, chunk in enumerate(text_chunks):
-        logger.info(f"Synthesizing chunk {i+1}/{len(text_chunks)}...")
-        try:
-            chunk_audio_np, chunk_sr_from_engine = engine.synthesize(
-                text=chunk,
-                voice=request.voice,
-                speed=(
-                    request.speed
-                    if request.speed is not None
-                    else get_gen_default_speed()
-                ),
-            )
-            perf_monitor.record(f"Engine synthesized chunk {i+1}")
-
-            if chunk_audio_np is None or chunk_sr_from_engine is None:
-                error_detail = f"TTS engine failed to synthesize audio for chunk {i+1}."
-                logger.error(error_detail)
-                raise HTTPException(status_code=500, detail=error_detail)
-
-            if engine_output_sample_rate is None:
-                engine_output_sample_rate = chunk_sr_from_engine
-            elif engine_output_sample_rate != chunk_sr_from_engine:
-                logger.warning(
-                    f"Inconsistent sample rate from engine: chunk {i+1} ({chunk_sr_from_engine}Hz) "
-                    f"differs from previous ({engine_output_sample_rate}Hz). Using first chunk's SR."
-                )
-
-            # The speed factor is now handled by the engine directly, so no post-processing for speed is needed here.
-
-            all_audio_segments_np.append(chunk_audio_np)
-
-        except HTTPException as http_exc:
-            raise http_exc
-        except Exception as e_chunk:
-            error_detail = f"Error processing audio chunk {i+1}: {str(e_chunk)}"
-            logger.error(error_detail, exc_info=True)
-            raise HTTPException(status_code=500, detail=error_detail)
-
-    if not all_audio_segments_np:
-        logger.error("No audio segments were successfully generated.")
-        raise HTTPException(
-            status_code=500, detail="Audio generation resulted in no output."
-        )
-
-    if engine_output_sample_rate is None:
-        logger.error("Engine output sample rate could not be determined.")
-        raise HTTPException(
-            status_code=500, detail="Failed to determine engine sample rate."
-        )
-
-    try:
-        if len(all_audio_segments_np) > 1:
-            # Add silence between chunks for natural pauses
-            silence_duration_ms = 200  # silence between chunks
-            silence_samples = int(
-                silence_duration_ms / 1000 * engine_output_sample_rate
-            )
-            silence_array = np.zeros(silence_samples, dtype=np.float32)
-
-            # Apply crossfade and add silence between chunks
-            crossfade_samples = int(0.01 * engine_output_sample_rate)  # 10ms crossfade
-
-            merged_audio = []
-            for i, chunk in enumerate(all_audio_segments_np):
-                if i == 0:
-                    merged_audio.append(chunk)
-                else:
-                    # Add silence gap between chunks
-                    merged_audio.append(silence_array)
-
-                    # Then add the next chunk with optional crossfade
-                    if (
-                        len(merged_audio[-2]) >= crossfade_samples
-                        and len(chunk) >= crossfade_samples
-                    ):
-                        # Apply fade out to end of previous audio (before silence)
-                        fade_out = np.linspace(1, 0, crossfade_samples)
-                        merged_audio[-2][-crossfade_samples:] *= fade_out
-
-                        # Apply fade in to start of current chunk
-                        fade_in = np.linspace(0, 1, crossfade_samples)
-                        chunk_copy = chunk.copy()
-                        chunk_copy[:crossfade_samples] *= fade_in
-                        merged_audio.append(chunk_copy)
-                    else:
-                        merged_audio.append(chunk)
-
-            final_audio_np = np.concatenate(merged_audio)
-            logger.debug(
-                f"Added {silence_duration_ms}ms silence between {len(all_audio_segments_np)} chunks"
-            )
-        else:
-            final_audio_np = all_audio_segments_np[0]
-
-        perf_monitor.record("All audio chunks processed and concatenated")
-
-    except ValueError as e_concat:
-        logger.error(f"Audio concatenation failed: {e_concat}", exc_info=True)
-        for idx, seg in enumerate(all_audio_segments_np):
-            logger.error(f"Segment {idx} shape: {seg.shape}, dtype: {seg.dtype}")
-        raise HTTPException(
-            status_code=500, detail=f"Audio concatenation error: {e_concat}"
-        )
-
+    resolved_speed = (
+        request.speed if request.speed is not None else get_gen_default_speed()
+    )
     output_format_str = (
         request.output_format if request.output_format else get_audio_output_format()
     )
+    split_text_to_use = (
+        request.split_text if request.split_text is not None else True
+    )
+    chunk_size_to_use = request.chunk_size if request.chunk_size is not None else 120
 
-    encoded_audio_bytes = utils.encode_audio(
-        audio_array=final_audio_np,
-        sample_rate=engine_output_sample_rate,
+    encoded_audio_bytes = _generate_audio_bytes(
+        raw_text=request.text,
+        voice=request.voice,
+        speed=resolved_speed,
         output_format=output_format_str,
-        target_sample_rate=final_output_sample_rate,
+        target_sample_rate=get_audio_sample_rate(),
+        split_text=split_text_to_use,
+        chunk_size=chunk_size_to_use,
+        context_label="/tts",
+        perf_monitor=perf_monitor,
     )
-    perf_monitor.record(
-        f"Final audio encoded to {output_format_str} (target SR: {final_output_sample_rate}Hz from engine SR: {engine_output_sample_rate}Hz)"
-    )
-
-    if encoded_audio_bytes is None or len(encoded_audio_bytes) < 100:
-        logger.error(
-            f"Failed to encode final audio to format: {output_format_str} or output is too small ({len(encoded_audio_bytes or b'')} bytes)."
-        )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to encode audio to {output_format_str} or generated invalid audio.",
-        )
 
     media_type = f"audio/{output_format_str}"
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
@@ -488,47 +614,56 @@ async def custom_tts_endpoint(
 
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
 async def openai_speech_endpoint(request: OpenAISpeechRequest):
+    perf_monitor = utils.PerformanceMonitor(
+        enabled=config_manager.get_bool("server.enable_performance_monitor", False)
+    )
+    perf_monitor.record("OpenAI speech request received")
+
     # Check if the TTS model is loaded
     if not engine.MODEL_LOADED:
+        logger.error("OpenAI speech request failed: Model not loaded.")
         raise HTTPException(
             status_code=503,
             detail="TTS engine model is not currently loaded or available.",
         )
 
+    logger.info(
+        "Received /v1/audio/speech request: voice='%s', format='%s'",
+        request.voice,
+        request.response_format,
+    )
+    logger.debug(
+        "OpenAI speech params: speed=%s, split=%s, chunk_size=%s",
+        request.speed,
+        _OPENAI_ROUTE_DEFAULT_SPLIT_TEXT,
+        _OPENAI_ROUTE_DEFAULT_CHUNK_SIZE,
+    )
+    logger.debug("Input text (first 100 chars): '%s...'", request.input_[:100])
+    perf_monitor.record("Parameters resolved")
+
     try:
-        # Synthesize the audio
-        audio_np, sr = engine.synthesize(
-            text=request.input_,
+        encoded_audio = _generate_audio_bytes(
+            raw_text=request.input_,
             voice=request.voice,
             speed=request.speed,
-        )
-
-        if audio_np is None or sr is None:
-            raise HTTPException(
-                status_code=500, detail="TTS engine failed to synthesize audio."
-            )
-
-        # Ensure it's 1D
-        if audio_np.ndim == 2:
-            audio_np = audio_np.squeeze()
-
-        # Encode the audio to the requested format
-        encoded_audio = utils.encode_audio(
-            audio_array=audio_np,
-            sample_rate=sr,
             output_format=request.response_format,
             target_sample_rate=get_audio_sample_rate(),
+            split_text=_OPENAI_ROUTE_DEFAULT_SPLIT_TEXT,
+            chunk_size=_OPENAI_ROUTE_DEFAULT_CHUNK_SIZE,
+            context_label="/v1/audio/speech",
+            perf_monitor=perf_monitor,
         )
-
-        if encoded_audio is None:
-            raise HTTPException(status_code=500, detail="Failed to encode audio.")
-
-        # Determine the media type
         media_type = f"audio/{request.response_format}"
-
-        # Return the streaming response
+        logger.info(
+            "Successfully generated OpenAI-compatible audio: %d bytes, type %s.",
+            len(encoded_audio),
+            media_type,
+        )
+        logger.debug(perf_monitor.report())
         return StreamingResponse(io.BytesIO(encoded_audio), media_type=media_type)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in openai_speech_endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

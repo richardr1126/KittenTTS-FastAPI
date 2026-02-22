@@ -5,12 +5,11 @@
 
 import os
 import logging
-import re
 import time
 import io
 import uuid
 from pathlib import Path
-from typing import Optional, Tuple, Set, List
+from typing import Optional, Tuple, List
 from pydub import AudioSegment
 
 import numpy as np
@@ -33,20 +32,6 @@ except ImportError:
     logger.warning(
         "Librosa library not found. Advanced audio resampling features (e.g., for Opus encoding) "
         "and pitch-preserving speed adjustment will be limited. Speed adjustment will fall back to basic method if enabled."
-    )
-
-# Optional import for Parselmouth (for unvoiced segment detection)
-try:
-    import parselmouth
-
-    PARSELMOUTH_AVAILABLE = True
-    logger.info(
-        "Parselmouth library found and will be used for unvoiced segment removal if enabled."
-    )
-except ImportError:
-    PARSELMOUTH_AVAILABLE = False
-    logger.warning(
-        "Parselmouth library not found. Unvoiced segment removal feature will be disabled."
     )
 
 
@@ -115,96 +100,37 @@ def sanitize_filename(filename: str) -> str:
     return sanitized
 
 
-# --- Constants for Text Processing ---
-# Set of common abbreviations to help with sentence splitting.
-ABBREVIATIONS: Set[str] = {
-    "mr.",
-    "mrs.",
-    "ms.",
-    "dr.",
-    "prof.",
-    "rev.",
-    "hon.",
-    "st.",
-    "etc.",
-    "e.g.",
-    "i.e.",
-    "vs.",
-    "approx.",
-    "apt.",
-    "dept.",
-    "fig.",
-    "gen.",
-    "gov.",
-    "inc.",
-    "jr.",
-    "sr.",
-    "ltd.",
-    "no.",
-    "p.",
-    "pp.",
-    "vol.",
-    "op.",
-    "cit.",
-    "ca.",
-    "cf.",
-    "ed.",
-    "esp.",
-    "et.",
-    "al.",
-    "ibid.",
-    "id.",
-    "inf.",
-    "sup.",
-    "viz.",
-    "sc.",
-    "fl.",
-    "d.",
-    "b.",
-    "r.",
-    "c.",
-    "v.",
-    "u.s.",
-    "u.k.",
-    "a.m.",
-    "p.m.",
-    "a.d.",
-    "b.c.",
-}
-
-# Common titles that might appear without a period if cleaned by other means first.
-TITLES_NO_PERIOD: Set[str] = {
-    "mr",
-    "mrs",
-    "ms",
-    "dr",
-    "prof",
-    "rev",
-    "hon",
-    "st",
-    "sgt",
-    "capt",
-    "lt",
-    "col",
-    "gen",
-}
-
-# Regex patterns (pre-compiled for efficiency in text processing).
-NUMBER_DOT_NUMBER_PATTERN = re.compile(
-    r"(?<!\d\.)\d*\.\d+"
-)  # Matches numbers like 3.14, .5, 123.456
-VERSION_PATTERN = re.compile(
-    r"[vV]?\d+(\.\d+)+"
-)  # Matches version numbers like v1.0.2, 2.3.4
-# Pattern to find potential sentence endings (punctuation followed by quote/space/end of string).
-POTENTIAL_END_PATTERN = re.compile(r'([.!?])(["\']?)(\s+|$)')
-# Pattern to detect start-of-line bullet points or numbered lists.
-BULLET_POINT_PATTERN = re.compile(r"(?:^|\n)\s*([-•*]|\d+\.)\s+")
-# Placeholder for non-verbal cues or special instructions within text (e.g., (laughs), (sighs)).
-NON_VERBAL_CUE_PATTERN = re.compile(r"(\([\w\s'-]+\))")
-
-
 # --- Audio Processing Utilities ---
+def _to_mono_float32(audio_array: np.ndarray) -> np.ndarray:
+    """
+    Normalize audio input to a mono float32 array in approximately [-1, 1].
+    """
+    if audio_array.dtype != np.float32:
+        if np.issubdtype(audio_array.dtype, np.integer):
+            max_val = np.iinfo(audio_array.dtype).max
+            audio_array = audio_array.astype(np.float32) / max_val
+        else:
+            audio_array = audio_array.astype(np.float32)
+        logger.debug("Converted audio array to float32 for encoding.")
+
+    if audio_array.ndim == 2 and audio_array.shape[1] == 1:
+        audio_array = audio_array.squeeze(axis=1)
+        logger.debug("Squeezed audio array from (samples, 1) to (samples,) for encoding.")
+    elif audio_array.ndim > 1:
+        logger.warning(
+            "Multi-channel audio (shape: %s) provided to encode_audio. Using only the first channel.",
+            audio_array.shape,
+        )
+        audio_array = audio_array[:, 0]
+
+    return audio_array
+
+
+def _to_pcm16(audio_array: np.ndarray) -> np.ndarray:
+    audio_clipped = np.clip(audio_array, -1.0, 1.0)
+    return (audio_clipped * 32767).astype(np.int16)
+
+
 def encode_audio(
     audio_array: np.ndarray,
     sample_rate: int,
@@ -228,28 +154,7 @@ def encode_audio(
         logger.warning("encode_audio received empty or None audio array.")
         return None
 
-    # Ensure audio is float32 for consistent processing.
-    if audio_array.dtype != np.float32:
-        if np.issubdtype(audio_array.dtype, np.integer):
-            max_val = np.iinfo(audio_array.dtype).max
-            audio_array = audio_array.astype(np.float32) / max_val
-        else:  # Fallback for other types, assuming they might be float64 or similar
-            audio_array = audio_array.astype(np.float32)
-        logger.debug(f"Converted audio array to float32 for encoding.")
-
-    # Ensure audio is mono if it's (samples, 1)
-    if audio_array.ndim == 2 and audio_array.shape[1] == 1:
-        audio_array = audio_array.squeeze(axis=1)
-        logger.debug(
-            "Squeezed audio array from (samples, 1) to (samples,) for encoding."
-        )
-    elif (
-        audio_array.ndim > 1
-    ):  # Multi-channel not directly supported by simple encoding path, attempt to take first channel
-        logger.warning(
-            f"Multi-channel audio (shape: {audio_array.shape}) provided to encode_audio. Using only the first channel."
-        )
-        audio_array = audio_array[:, 0]
+    audio_array = _to_mono_float32(audio_array)
 
     # Resample if target_sample_rate is provided and different from current sample_rate
     if (
@@ -314,11 +219,7 @@ def encode_audio(
             )
 
         elif output_format == "wav":
-            # WAV typically uses int16 for broader compatibility.
-            # Clip audio to [-1.0, 1.0] before converting to int16 to prevent overflow.
-            audio_clipped = np.clip(audio_array, -1.0, 1.0)
-            audio_int16 = (audio_clipped * 32767).astype(np.int16)
-            audio_to_write = audio_int16  # Use the int16 version for WAV
+            audio_to_write = _to_pcm16(audio_array)
             sf.write(
                 output_buffer,
                 audio_to_write,
@@ -328,8 +229,7 @@ def encode_audio(
             )
 
         elif output_format == "mp3":
-            audio_clipped = np.clip(audio_array, -1.0, 1.0)
-            audio_int16 = (audio_clipped * 32767).astype(np.int16)
+            audio_int16 = _to_pcm16(audio_array)
             audio_segment = AudioSegment(
                 audio_int16.tobytes(),
                 frame_rate=sample_rate,
@@ -360,587 +260,6 @@ def encode_audio(
     except Exception as e:
         logger.error(f"Error encoding audio to '{output_format}': {e}", exc_info=True)
         return None
-
-
-def save_audio_to_file(
-    audio_array: np.ndarray, sample_rate: int, file_path_str: str
-) -> bool:
-    """
-    Saves a NumPy audio array to a WAV file.
-
-    Args:
-        audio_array: NumPy array containing audio data (float32, range [-1, 1]).
-        sample_rate: Sample rate of the audio data.
-        file_path_str: String path to save the WAV file.
-
-    Returns:
-        True if saving was successful, False otherwise.
-    """
-    if audio_array is None or audio_array.size == 0:
-        logger.warning("save_audio_to_file received empty or None audio array.")
-        return False
-
-    file_path = Path(file_path_str)
-    if file_path.suffix.lower() != ".wav":
-        logger.warning(
-            f"File path '{file_path_str}' does not end with .wav. Appending .wav extension."
-        )
-        file_path = file_path.with_suffix(".wav")
-
-    start_time = time.time()
-    try:
-        # Ensure output directory exists.
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Prepare audio for WAV (int16, clipped).
-        if (
-            audio_array.dtype != np.float32
-        ):  # Ensure float32 before potential scaling to int16
-            if np.issubdtype(audio_array.dtype, np.integer):
-                max_val = np.iinfo(audio_array.dtype).max
-                audio_array = audio_array.astype(np.float32) / max_val
-            else:
-                audio_array = audio_array.astype(np.float32)
-
-        audio_clipped = np.clip(audio_array, -1.0, 1.0)
-        audio_int16 = (audio_clipped * 32767).astype(np.int16)
-
-        sf.write(
-            str(file_path), audio_int16, sample_rate, format="wav", subtype="pcm_16"
-        )
-        end_time = time.time()
-        logger.info(
-            f"Saved WAV file to {file_path} in {end_time - start_time:.3f} seconds."
-        )
-        return True
-    except ImportError:
-        logger.critical("SoundFile library not found. Cannot save audio.")
-        return False
-    except Exception as e:
-        logger.error(f"Error saving WAV file to {file_path}: {e}", exc_info=True)
-        return False
-
-
-# --- Audio Manipulation Utilities ---
-
-
-def trim_lead_trail_silence(
-    audio_array: np.ndarray,
-    sample_rate: int,
-    silence_threshold_db: float = -40.0,
-    min_silence_duration_ms: int = 100,
-    padding_ms: int = 50,
-) -> np.ndarray:
-    """
-    Trims silence from the beginning and end of a NumPy audio array using a dB threshold.
-
-    Args:
-        audio_array: NumPy array (float32) of the audio.
-        sample_rate: Sample rate of the audio.
-        silence_threshold_db: Silence threshold in dBFS. Segments below this are considered silent.
-        min_silence_duration_ms: Minimum duration of silence to be trimmed (ms).
-        padding_ms: Padding to leave at the start/end after trimming (ms).
-
-    Returns:
-        Trimmed NumPy audio array. Returns original if no significant silence is found or on error.
-    """
-    if audio_array is None or audio_array.size == 0:
-        return audio_array
-
-    try:
-        if not LIBROSA_AVAILABLE:
-            logger.warning("Librosa not available, skipping silence trimming.")
-            return audio_array
-
-        top_db_threshold = abs(silence_threshold_db)
-
-        frame_length = 2048
-        hop_length = 512
-
-        trimmed_audio, index = librosa.effects.trim(
-            y=audio_array,
-            top_db=top_db_threshold,
-            frame_length=frame_length,
-            hop_length=hop_length,
-        )
-
-        start_sample, end_sample = index[0], index[1]
-
-        padding_samples = int((padding_ms / 1000.0) * sample_rate)
-        final_start = max(0, start_sample - padding_samples)
-        final_end = min(len(audio_array), end_sample + padding_samples)
-
-        if final_end > final_start:  # Ensure the slice is valid
-            # Check if significant trimming occurred
-            original_length = len(audio_array)
-            trimmed_length_with_padding = final_end - final_start
-            # Heuristic: if length changed by more than just padding, or if original silence was more than min_duration
-            # For simplicity, if librosa.effects.trim found *any* indices different from [0, original_length],
-            # it means some trimming potential was identified.
-            if index[0] > 0 or index[1] < original_length:
-                logger.debug(
-                    f"Silence trimmed: original samples {original_length}, new effective samples {trimmed_length_with_padding} (indices before padding: {index})"
-                )
-                return audio_array[final_start:final_end]
-
-        logger.debug(
-            "No significant leading/trailing silence found to trim, or result would be empty."
-        )
-        return audio_array
-
-    except Exception as e:
-        logger.error(f"Error during silence trimming: {e}", exc_info=True)
-        return audio_array
-
-
-def fix_internal_silence(
-    audio_array: np.ndarray,
-    sample_rate: int,
-    silence_threshold_db: float = -40.0,
-    min_silence_to_fix_ms: int = 700,
-    max_allowed_silence_ms: int = 300,
-) -> np.ndarray:
-    """
-    Reduces long internal silences in a NumPy audio array to a specified maximum duration.
-    Uses Librosa to split by silence.
-
-    Args:
-        audio_array: NumPy array (float32) of the audio.
-        sample_rate: Sample rate of the audio.
-        silence_threshold_db: Silence threshold in dBFS.
-        min_silence_to_fix_ms: Minimum duration of an internal silence to be shortened (ms).
-        max_allowed_silence_ms: Target maximum duration for long silences (ms).
-
-    Returns:
-        NumPy audio array with long internal silences shortened. Original if no fix needed or on error.
-    """
-    if audio_array is None or audio_array.size == 0:
-        return audio_array
-
-    try:
-        if not LIBROSA_AVAILABLE:
-            logger.warning("Librosa not available, skipping internal silence fixing.")
-            return audio_array
-
-        top_db_threshold = abs(silence_threshold_db)
-        min_silence_len_samples = int((min_silence_to_fix_ms / 1000.0) * sample_rate)
-        max_silence_samples_to_keep = int(
-            (max_allowed_silence_ms / 1000.0) * sample_rate
-        )
-
-        non_silent_intervals = librosa.effects.split(
-            y=audio_array,
-            top_db=top_db_threshold,
-            frame_length=2048,  # Can be tuned
-            hop_length=512,  # Can be tuned
-        )
-
-        if len(non_silent_intervals) <= 1:
-            logger.debug("No significant internal silences found to fix.")
-            return audio_array
-
-        fixed_audio_parts = []
-        last_nonsilent_end = 0
-
-        for i, (start_sample, end_sample) in enumerate(non_silent_intervals):
-            silence_duration_samples = start_sample - last_nonsilent_end
-            if silence_duration_samples > 0:
-                if silence_duration_samples >= min_silence_len_samples:
-                    silence_to_add = audio_array[
-                        last_nonsilent_end : last_nonsilent_end
-                        + max_silence_samples_to_keep
-                    ]
-                    fixed_audio_parts.append(silence_to_add)
-                    logger.debug(
-                        f"Shortened internal silence from {silence_duration_samples} to {max_silence_samples_to_keep} samples."
-                    )
-                else:
-                    fixed_audio_parts.append(
-                        audio_array[last_nonsilent_end:start_sample]
-                    )
-            fixed_audio_parts.append(audio_array[start_sample:end_sample])
-            last_nonsilent_end = end_sample
-
-        # Handle potential silence after the very last non-silent segment
-        # This part is tricky as librosa.effects.split only gives non-silent parts.
-        # The trim_lead_trail_silence should handle overall trailing silence.
-        # This function focuses on *between* non-silent segments.
-        if last_nonsilent_end < len(audio_array):
-            trailing_segment = audio_array[last_nonsilent_end:]
-            # Check if this trailing segment is mostly silence and long enough to shorten
-            # For simplicity, we'll assume trim_lead_trail_silence handles the very end.
-            # Or, we could append it if it's short, or shorten it if it's long silence.
-            # To avoid over-complication here, let's just append what's left.
-            # The primary goal is internal silences.
-            # However, if the last "non_silent_interval" was short and followed by a long silence,
-            # that silence needs to be handled here too.
-            silence_duration_samples = len(audio_array) - last_nonsilent_end
-            if silence_duration_samples > 0:
-                if silence_duration_samples >= min_silence_len_samples:
-                    fixed_audio_parts.append(
-                        audio_array[
-                            last_nonsilent_end : last_nonsilent_end
-                            + max_silence_samples_to_keep
-                        ]
-                    )
-                    logger.debug(
-                        f"Shortened trailing silence from {silence_duration_samples} to {max_silence_samples_to_keep} samples."
-                    )
-                else:
-                    fixed_audio_parts.append(trailing_segment)
-
-        if not fixed_audio_parts:  # Should not happen if non_silent_intervals > 1
-            logger.warning(
-                "Internal silence fixing resulted in no audio parts; returning original."
-            )
-            return audio_array
-
-        return np.concatenate(fixed_audio_parts)
-
-    except Exception as e:
-        logger.error(f"Error during internal silence fixing: {e}", exc_info=True)
-        return audio_array
-
-
-def remove_long_unvoiced_segments(
-    audio_array: np.ndarray,
-    sample_rate: int,
-    min_unvoiced_duration_ms: int = 300,
-    pitch_floor: float = 75.0,
-    pitch_ceiling: float = 600.0,
-) -> np.ndarray:
-    """
-    Removes segments from a NumPy audio array that are unvoiced for longer than
-    the specified duration, using Parselmouth for pitch analysis.
-
-    Args:
-        audio_array: NumPy array (float32) of the audio.
-        sample_rate: Sample rate of the audio.
-        min_unvoiced_duration_ms: Minimum duration (ms) of an unvoiced segment to be removed.
-        pitch_floor: Minimum pitch (Hz) to consider for voicing.
-        pitch_ceiling: Maximum pitch (Hz) to consider for voicing.
-
-    Returns:
-        NumPy audio array with long unvoiced segments removed. Original if Parselmouth not available or on error.
-    """
-    if not PARSELMOUTH_AVAILABLE:
-        logger.warning("Parselmouth not available, skipping unvoiced segment removal.")
-        return audio_array
-    if audio_array is None or audio_array.size == 0:
-        return audio_array
-
-    try:
-        sound = parselmouth.Sound(
-            audio_array.astype(np.float64), sampling_frequency=sample_rate
-        )
-        pitch = sound.to_pitch(pitch_floor=pitch_floor, pitch_ceiling=pitch_ceiling)
-        voiced_unvoiced = pitch.get_VoicedVoicelessUnvoiced()
-
-        segments_to_keep = []
-        current_segment_start_sample = 0
-        min_unvoiced_samples = int((min_unvoiced_duration_ms / 1000.0) * sample_rate)
-
-        for i in range(len(voiced_unvoiced.time_intervals)):
-            interval_start_time, interval_end_time, is_voiced_str = (
-                voiced_unvoiced.time_intervals[i]
-            )
-            is_voiced = is_voiced_str == "voiced"
-
-            interval_start_sample = int(interval_start_time * sample_rate)
-            interval_end_sample = int(interval_end_time * sample_rate)
-            interval_duration_samples = interval_end_sample - interval_start_sample
-
-            if is_voiced:
-                segments_to_keep.append(
-                    audio_array[current_segment_start_sample:interval_end_sample]
-                )
-                current_segment_start_sample = interval_end_sample
-            else:  # Unvoiced segment
-                if interval_duration_samples < min_unvoiced_samples:
-                    segments_to_keep.append(
-                        audio_array[current_segment_start_sample:interval_end_sample]
-                    )
-                    current_segment_start_sample = interval_end_sample
-                else:
-                    logger.debug(
-                        f"Removing long unvoiced segment from {interval_start_time:.2f}s to {interval_end_time:.2f}s."
-                    )
-                    # Append the audio *before* this long unvoiced segment (if any)
-                    if interval_start_sample > current_segment_start_sample:
-                        segments_to_keep.append(
-                            audio_array[
-                                current_segment_start_sample:interval_start_sample
-                            ]
-                        )
-                    current_segment_start_sample = interval_end_sample
-
-        if current_segment_start_sample < len(audio_array):
-            segments_to_keep.append(audio_array[current_segment_start_sample:])
-
-        if not segments_to_keep:
-            logger.warning(
-                "Unvoiced segment removal resulted in empty audio; returning original."
-            )
-            return audio_array
-
-        return np.concatenate(segments_to_keep)
-
-    except Exception as e:
-        logger.error(f"Error during unvoiced segment removal: {e}", exc_info=True)
-        return audio_array
-
-
-# --- Text Processing Utilities ---
-def _is_valid_sentence_end(text: str, period_index: int) -> bool:
-    """
-    Checks if a period at a given index in the text is likely a valid sentence terminator,
-    rather than part of an abbreviation, number, or version string.
-    """
-    word_start_before_period = period_index - 1
-    scan_limit = max(0, period_index - 10)
-    while (
-        word_start_before_period >= scan_limit
-        and not text[word_start_before_period].isspace()
-    ):
-        word_start_before_period -= 1
-    word_before_period = text[word_start_before_period + 1 : period_index + 1].lower()
-    if word_before_period in ABBREVIATIONS:
-        return False
-
-    context_start = max(0, period_index - 10)
-    context_end = min(len(text), period_index + 10)
-    context_segment = text[context_start:context_end]
-    relative_period_index_in_context = period_index - context_start
-
-    for pattern in [NUMBER_DOT_NUMBER_PATTERN, VERSION_PATTERN]:
-        for match in pattern.finditer(context_segment):
-            if match.start() <= relative_period_index_in_context < match.end():
-                is_last_char_of_numeric_match = (
-                    relative_period_index_in_context == match.end() - 1
-                )
-                is_followed_by_space_or_eos = (
-                    period_index + 1 == len(text) or text[period_index + 1].isspace()
-                )
-                if not (is_last_char_of_numeric_match and is_followed_by_space_or_eos):
-                    return False
-    return True
-
-
-def _split_text_by_punctuation(text: str) -> List[str]:
-    """
-    Splits text into sentences based on common punctuation marks (.!?),
-    while trying to avoid splitting on periods used in abbreviations or numbers.
-    """
-    sentences: List[str] = []
-    last_split_index = 0
-    text_length = len(text)
-
-    for match in POTENTIAL_END_PATTERN.finditer(text):
-        punctuation_char_index = match.start(1)
-        punctuation_char = text[punctuation_char_index]
-        slice_end_after_punctuation = match.start(1) + 1 + len(match.group(2) or "")
-
-        if punctuation_char in ["!", "?"]:
-            current_sentence_text = text[
-                last_split_index:slice_end_after_punctuation
-            ].strip()
-            if current_sentence_text:
-                sentences.append(current_sentence_text)
-            last_split_index = match.end()
-            continue
-
-        if punctuation_char == ".":
-            if (
-                punctuation_char_index > 0 and text[punctuation_char_index - 1] == "."
-            ) or (
-                punctuation_char_index < text_length - 1
-                and text[punctuation_char_index + 1] == "."
-            ):
-                continue
-
-            if _is_valid_sentence_end(text, punctuation_char_index):
-                current_sentence_text = text[
-                    last_split_index:slice_end_after_punctuation
-                ].strip()
-                if current_sentence_text:
-                    sentences.append(current_sentence_text)
-                last_split_index = match.end()
-
-    remaining_text_segment = text[last_split_index:].strip()
-    if remaining_text_segment:
-        sentences.append(remaining_text_segment)
-
-    sentences = [s for s in sentences if s]
-    if not sentences and text.strip():
-        return [text.strip()]
-    return sentences
-
-
-def split_into_sentences(text: str) -> List[str]:
-    """
-    Splits a given text into sentences. Handles normalization of line breaks
-    and considers bullet points as potential sentence separators.
-    This is the primary entry point for sentence splitting.
-    """
-    if not text or text.isspace():
-        return []
-
-    text = text.replace("\r\n", "\n").replace("\r", "\n")
-    bullet_point_matches = list(BULLET_POINT_PATTERN.finditer(text))
-
-    if bullet_point_matches:
-        logger.debug("Bullet points detected in text; splitting by bullet items.")
-        processed_sentences: List[str] = []
-        current_position = 0
-        for i, bullet_match in enumerate(bullet_point_matches):
-            bullet_actual_start_index = bullet_match.start()
-            if i == 0 and bullet_actual_start_index > current_position:
-                pre_bullet_segment = text[
-                    current_position:bullet_actual_start_index
-                ].strip()
-                if pre_bullet_segment:
-                    processed_sentences.extend(
-                        s for s in _split_text_by_punctuation(pre_bullet_segment) if s
-                    )
-
-            next_bullet_start_index = (
-                bullet_point_matches[i + 1].start()
-                if i + 1 < len(bullet_point_matches)
-                else len(text)
-            )
-            bullet_item_segment = text[
-                bullet_actual_start_index:next_bullet_start_index
-            ].strip()
-            if bullet_item_segment:
-                processed_sentences.append(bullet_item_segment)
-            current_position = next_bullet_start_index
-
-        if current_position < len(text):
-            post_bullet_segment = text[current_position:].strip()
-            if post_bullet_segment:
-                processed_sentences.extend(
-                    s for s in _split_text_by_punctuation(post_bullet_segment) if s
-                )
-        return [s for s in processed_sentences if s]
-    else:
-        logger.debug(
-            "No bullet points detected; using punctuation-based sentence splitting."
-        )
-        return _split_text_by_punctuation(text)
-
-
-def _preprocess_and_segment_text(full_text: str) -> List[Tuple[Optional[str], str]]:
-    """
-    Internal helper to segment text by non-verbal cues (e.g., (laughs)) and then
-    further split those segments into sentences.
-    Assigns a placeholder "tag" (here, None or empty string) as this system is single-speaker.
-    The tuple structure (tag, sentence) is maintained for compatibility with chunking logic
-    that might expect it, even if the tag itself isn't used for speaker differentiation.
-
-    Args:
-        full_text: The complete input text.
-
-    Returns:
-        A list of tuples, where each tuple is (placeholder_tag, sentence_text).
-    """
-    if not full_text or full_text.isspace():
-        return []
-
-    placeholder_tag: Optional[str] = None
-    segmented_with_tags: List[Tuple[Optional[str], str]] = []
-    parts_and_cues = NON_VERBAL_CUE_PATTERN.split(full_text)
-
-    for part in parts_and_cues:
-        if not part or part.isspace():
-            continue
-        if NON_VERBAL_CUE_PATTERN.fullmatch(part):
-            segmented_with_tags.append((placeholder_tag, part.strip()))
-        else:
-            sentences_from_part = split_into_sentences(part.strip())
-            for sentence in sentences_from_part:
-                if sentence:
-                    segmented_with_tags.append((placeholder_tag, sentence))
-
-    if not segmented_with_tags and full_text.strip():
-        segmented_with_tags.append((placeholder_tag, full_text.strip()))
-
-    logger.debug(
-        f"Preprocessed text into {len(segmented_with_tags)} segments/sentences."
-    )
-    return segmented_with_tags
-
-
-def chunk_text_by_sentences(
-    full_text: str,
-    chunk_size: int,
-) -> List[str]:
-    """
-    Chunks text into manageable pieces for TTS processing, respecting sentence boundaries
-    and a maximum chunk character length. Designed for single-speaker text, but maintains
-    a structure that can handle segments (like non-verbal cues) separately.
-
-    Args:
-        full_text: The complete text to be chunked.
-        chunk_size: The desired maximum character length for each chunk.
-                    Sentences longer than this will form their own chunk.
-
-    Returns:
-        A list of text chunks, ready for TTS.
-    """
-    if not full_text or full_text.isspace():
-        return []
-    if chunk_size <= 0:
-        chunk_size = float("inf")
-
-    processed_segments = _preprocess_and_segment_text(full_text)
-    if not processed_segments:
-        return []
-
-    text_chunks: List[str] = []
-    current_chunk_sentences: List[str] = []
-    current_chunk_length = 0
-
-    for (
-        _,
-        segment_text,
-    ) in processed_segments:
-        segment_len = len(segment_text)
-
-        if not current_chunk_sentences:
-            current_chunk_sentences.append(segment_text)
-            current_chunk_length = segment_len
-        elif current_chunk_length + 1 + segment_len <= chunk_size:
-            current_chunk_sentences.append(segment_text)
-            current_chunk_length += 1 + segment_len
-        else:
-            if current_chunk_sentences:
-                text_chunks.append(" ".join(current_chunk_sentences))
-            current_chunk_sentences = [segment_text]
-            current_chunk_length = segment_len
-
-        if current_chunk_length > chunk_size and len(current_chunk_sentences) == 1:
-            logger.info(
-                f"A single segment (length {current_chunk_length}) exceeds chunk_size {chunk_size}. "
-                f"It will form its own chunk."
-            )
-            text_chunks.append(" ".join(current_chunk_sentences))
-            current_chunk_sentences = []
-            current_chunk_length = 0
-
-    if current_chunk_sentences:
-        text_chunks.append(" ".join(current_chunk_sentences))
-
-    text_chunks = [chunk for chunk in text_chunks if chunk.strip()]
-
-    if not text_chunks and full_text.strip():
-        logger.warning(
-            "Text chunking resulted in zero chunks despite non-empty input. Returning full text as one chunk."
-        )
-        return [full_text.strip()]
-
-    logger.info(f"Text chunking complete. Generated {len(text_chunks)} chunk(s).")
-    return text_chunks
-
 
 # --- Performance Monitoring Utility ---
 class PerformanceMonitor:

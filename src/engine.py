@@ -3,8 +3,9 @@
 
 import logging
 import numpy as np
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 from kittentts import KittenTTS
+from nlp import TextPreprocessor
 
 # Import the singleton config_manager
 from config import config_manager
@@ -20,6 +21,38 @@ KITTEN_TTS_VOICES = [
     "Bella", "Jasper", "Luna", "Bruno",
     "Rosie", "Hugo", "Kiki", "Leo"
 ]
+
+def _build_runtime_preprocessor() -> TextPreprocessor:
+    """
+    Build the server-level text preprocessor using runtime config toggles.
+    """
+    return TextPreprocessor(
+        filter_table_artifacts=config_manager.get_bool(
+            "text_processing.filter_table_artifacts", True
+        ),
+        filter_reference_artifacts=config_manager.get_bool(
+            "text_processing.filter_reference_artifacts", True
+        ),
+        filter_symbol_noise=config_manager.get_bool(
+            "text_processing.filter_symbol_noise", True
+        ),
+    )
+
+
+def is_speakable_text(text: str) -> bool:
+    if not text:
+        return False
+    return any(ch.isalnum() for ch in text)
+
+
+def preprocess_text(text: str) -> Tuple[str, Dict[str, int]]:
+    """
+    Centralized text preprocessing entrypoint for server request handling.
+    Returns cleaned text and metadata useful for observability.
+    """
+    preprocessor = _build_runtime_preprocessor()
+    cleaned_text, metadata = preprocessor.process_with_metadata(text)
+    return cleaned_text, metadata
 
 
 def load_model() -> bool:
@@ -70,7 +103,7 @@ def load_model() -> bool:
 
 
 def synthesize(
-    text: str, voice: str, speed: float = 1.0
+    text: str, voice: str, speed: float = 1.0, clean_text: bool = True
 ) -> Tuple[Optional[np.ndarray], Optional[int]]:
     """
     Synthesizes audio from text using the loaded KittenTTS model.
@@ -98,8 +131,8 @@ def synthesize(
         logger.debug(f"Synthesizing with voice='{voice}', speed={speed}")
         logger.debug(f"Input text (first 100 chars): '{text[:100]}...'")
 
-        # Generate audio using KittenTTS package
-        audio = tts_model.generate(text, voice=voice, speed=speed)
+        # Generate audio using KittenTTS package.
+        audio = tts_model.generate(text, voice=voice, speed=speed, clean_text=clean_text)
 
         # KittenTTS uses 24kHz sample rate natively
         sample_rate = 24000
@@ -107,6 +140,9 @@ def synthesize(
         logger.info(f"Successfully generated {len(audio)} audio samples at {sample_rate}Hz")
         return audio, sample_rate
 
+    except ValueError as e:
+        logger.warning("Text could not be synthesized cleanly: %s", e)
+        return None, None
     except Exception as e:
         logger.error(f"Error during KittenTTS synthesis: {e}", exc_info=True)
         return None, None
