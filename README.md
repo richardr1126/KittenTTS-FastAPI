@@ -28,11 +28,6 @@ Production-ready [FastAPI](https://fastapi.tiangolo.com/) wrapper around [Kitten
 *   **Built-in Voices**: 8 voices included (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo).
 *   **Piper Alternative**: Compact self-hosted TTS with low overhead.
 
-<div align="center">
-  <img src="static/screenshot-d.png" alt="Kitten TTS Server Web UI - Dark Mode" width="33%" />
-  <img src="static/screenshot-l.png" alt="Kitten TTS Server Web UI - Light Mode" width="33%" />
-</div>
-
 ---
 
 ## 🐳 Docker Quickstart
