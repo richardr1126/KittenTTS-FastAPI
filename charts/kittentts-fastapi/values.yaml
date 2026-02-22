@@ -1,0 +1,75 @@
+app-template:
+  # yaml-language-server: $schema=https://raw.githubusercontent.com/bjw-s/helm-charts/main/charts/other/app-template/values.schema.json
+  
+  controllers:
+    main:
+      annotations:
+        reloader.stakater.com/auto: "true"
+      containers:
+        main:
+          image:
+            repository: ghcr.io/richardr1126/kittentts-fastapi-cpu
+            # tag: cpu # Uncomment for CPU-only image
+            # tag: nvidia # Uncomment for GPU image
+            tag: latest # Adjust to specify a version
+            pullPolicy: IfNotPresent
+          env:
+            TZ: UTC
+            # KITTEN_SERVER_HOST: 0.0.0.0
+            # KITTEN_SERVER_PORT: 8005
+            # KITTEN_MODEL_REPO_ID: KittenML/kitten-tts-nano-0.8-fp32
+            # KITTEN_TTS_DEVICE: auto # cpu, cuda, or auto
+            # HF_HUB_ENABLE_HF_TRANSFER: "1"
+          probes:
+            liveness: &probe
+              enabled: true
+              custom: true
+              spec:
+                httpGet:
+                  path: /docs
+                  port: 8005
+                initialDelaySeconds: 15
+                periodSeconds: 10
+                timeoutSeconds: 1
+                failureThreshold: 3
+            readiness: *probe
+          resources:
+            requests:
+              cpu: 50m
+              memory: 512Mi
+            limits:
+              memory: 4Gi
+              # nvidia.com/gpu: 1 # Uncomment to request a GPU
+  
+  service:
+    main:
+      controller: main
+      ports:
+        http:
+          port: 8005
+  
+  ingress:
+    main:
+      enabled: false
+      className: ""
+      annotations: {}
+      hosts:
+        - host: kittentts.local
+          paths:
+            - path: /
+              service:
+                identifier: main
+                port: http
+  
+  persistence:
+    model-cache:
+      enabled: true
+      type: emptyDir
+      # type: persistentVolumeClaim
+      # storageClass: "-"
+      # accessMode: ReadWriteOnce
+      # size: 10Gi
+      advancedMounts:
+        main:
+          main:
+            - path: /app/model_cache
