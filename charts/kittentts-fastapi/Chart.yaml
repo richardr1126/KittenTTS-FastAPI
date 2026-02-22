@@ -2,7 +2,7 @@ apiVersion: v2
 name: kittentts-fastapi
 description: A Helm chart for KittenTTS-FastAPI based on the bjw-s app-template
 type: application
-version: 0.1.0
+version: 0.1.1
 appVersion: "latest"
 dependencies:
   - name: app-template

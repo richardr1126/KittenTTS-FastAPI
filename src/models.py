@@ -20,6 +20,41 @@ class GenerationParams(BaseModel):
     )
 
 
+class TextOptions(BaseModel):
+    """Advanced text preprocessing and chunking behavior controls."""
+
+    profile: Optional[Literal["balanced", "narration", "dialogue"]] = Field(
+        None,
+        description="Named text-processing profile. Applies only to this request on /tts.",
+    )
+    remove_punctuation: Optional[bool] = Field(
+        None,
+        description="If true, strips punctuation characters during preprocessing.",
+    )
+    normalize_pause_punctuation: Optional[bool] = Field(
+        None,
+        description="If true, normalizes punctuation runs and symbols into pause-friendly forms.",
+    )
+    pause_strength: Optional[Literal["light", "medium", "strong"]] = Field(
+        None,
+        description="Controls normalization aggressiveness for pause-like punctuation.",
+    )
+    dialogue_turn_splitting: Optional[bool] = Field(
+        None,
+        description="If true, split script-style dialogue turns into independent chunk segments.",
+    )
+    speaker_label_mode: Optional[Literal["drop", "speak"]] = Field(
+        None,
+        description="When dialogue turns are detected, either remove or keep speaker labels.",
+    )
+    max_punct_run: Optional[int] = Field(
+        None,
+        ge=1,
+        le=6,
+        description="Maximum run length allowed for repeated pause punctuation.",
+    )
+
+
 class CustomTTSRequest(BaseModel):
     """Request model for the custom /tts endpoint."""
 
@@ -51,6 +86,10 @@ class CustomTTSRequest(BaseModel):
     )
     language: Optional[str] = Field(
         None, description="Overrides default language if provided."
+    )
+    text_options: Optional[TextOptions] = Field(
+        None,
+        description="Optional request-level overrides for text preprocessing and dialogue handling.",
     )
 
 

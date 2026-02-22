@@ -10,6 +10,12 @@
     voice: "Bella"
     speed: 1.0
     language: "en"
+    output_format: "mp3"
+    split_text: true
+    chunk_size: 220
+    text_options:
+      profile: "balanced"
+      pause_strength: "medium"
 
 - name: "Expressive Monologue"
   text: |
@@ -18,6 +24,12 @@
     voice: "Luna"
     speed: 0.9
     language: "en"
+    output_format: "mp3"
+    split_text: true
+    chunk_size: 180
+    text_options:
+      profile: "narration"
+      pause_strength: "strong"
 
 - name: "Technical Explanation"
   text: |
@@ -26,6 +38,12 @@
     voice: "Bruno"
     speed: 1.0
     language: "en"
+    output_format: "mp3"
+    split_text: true
+    chunk_size: 240
+    text_options:
+      profile: "balanced"
+      max_punct_run: 2
 
 - name: "Upbeat Advertisement"
   text: |
@@ -34,6 +52,12 @@
     voice: "Jasper"
     speed: 1.1
     language: "en"
+    output_format: "mp3"
+    split_text: false
+    chunk_size: 120
+    text_options:
+      profile: "balanced"
+      pause_strength: "light"
 
 - name: "Long Story Excerpt (Chunking Test)"
   text: |
@@ -42,3 +66,31 @@
     voice: "Rosie"
     speed: 1.0
     language: "en"
+    output_format: "mp3"
+    split_text: true
+    chunk_size: 260
+    text_options:
+      profile: "narration"
+      pause_strength: "strong"
+
+- name: "Dialogue Script (Turn Splitting)"
+  text: |
+    Alice: We only have five minutes before the meeting starts.
+    Bob: Then let's lock the agenda and keep introductions short.
+    Alice: Great. I'll cover the metrics first, then hand it over.
+    Bob: Perfect. I will close with next steps and owners.
+  params:
+    voice: "Bella"
+    speed: 1.0
+    language: "en"
+    output_format: "mp3"
+    split_text: true
+    chunk_size: 120
+    text_options:
+      profile: "dialogue"
+      dialogue_turn_splitting: true
+      speaker_label_mode: "drop"
+      normalize_pause_punctuation: true
+      pause_strength: "light"
+      max_punct_run: 3
+      remove_punctuation: false

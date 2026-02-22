@@ -17,8 +17,14 @@ app-template:
             TZ: UTC
             # KITTEN_SERVER_HOST: 0.0.0.0
             # KITTEN_SERVER_PORT: 8005
+            # KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR: "false"
             # KITTEN_MODEL_REPO_ID: KittenML/kitten-tts-nano-0.8-fp32
             # KITTEN_TTS_DEVICE: auto # cpu, cuda, or auto
+            # KITTEN_MODEL_CACHE: /app/model_cache
+            # KITTEN_AUDIO_FORMAT: wav # wav, mp3, opus, aac
+            # KITTEN_TEXT_PROFILE: balanced # balanced, narration, dialogue
+            # KITTEN_UI_TITLE: Kitten TTS Server
+            # KITTEN_UI_SHOW_LANGUAGE_SELECT: "true"
             # HF_HUB_ENABLE_HF_TRANSFER: "1"
           probes:
             liveness: &probe

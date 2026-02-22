@@ -3,6 +3,7 @@
 
 import logging
 import os
+import json
 from copy import deepcopy
 from pathlib import Path
 from threading import Lock
@@ -19,6 +20,45 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 DEFAULT_MODEL_FILES_PATH = PROJECT_ROOT / "model_cache"
+
+_BASE_TEXT_PROFILE_PROCESSING: Dict[str, Any] = {
+    "lowercase": True,
+    "replace_numbers": True,
+    "replace_floats": True,
+    "expand_contractions": True,
+    "expand_model_names": True,
+    "expand_ordinals": True,
+    "expand_percentages": True,
+    "expand_currency": True,
+    "expand_time": True,
+    "expand_ranges": True,
+    "expand_units": True,
+    "separate_alphanumeric_tokens": True,
+    "expand_scale_suffixes": True,
+    "expand_scientific_notation": True,
+    "expand_fractions": True,
+    "expand_decades": True,
+    "expand_phone_numbers": True,
+    "expand_ip_addresses": True,
+    "normalize_leading_decimals": True,
+    "expand_roman_numerals": False,
+    "remove_urls": True,
+    "remove_emails": True,
+    "remove_html": True,
+    "remove_hashtags": False,
+    "remove_mentions": False,
+    "remove_punctuation": False,
+    "remove_stopwords": False,
+    "normalize_unicode": True,
+    "remove_accents": False,
+    "remove_extra_whitespace": True,
+    "filter_table_artifacts": True,
+    "filter_reference_artifacts": True,
+    "filter_symbol_noise": True,
+    "normalize_pause_punctuation": True,
+    "pause_strength": "medium",
+    "max_punct_run": 3,
+}
 
 DEFAULT_CONFIG: Dict[str, Any] = {
     "server": {
@@ -44,9 +84,27 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "sample_rate": 24000,
     },
     "text_processing": {
-        "filter_table_artifacts": True,
-        "filter_reference_artifacts": True,
-        "filter_symbol_noise": True,
+        "active_profile": "balanced",
+        "profiles": {
+            "balanced": {
+                **_BASE_TEXT_PROFILE_PROCESSING,
+                "dialogue_turn_splitting": False,
+                "speaker_label_mode": "drop",
+            },
+            "narration": {
+                **_BASE_TEXT_PROFILE_PROCESSING,
+                "pause_strength": "strong",
+                "dialogue_turn_splitting": False,
+                "speaker_label_mode": "drop",
+                "max_punct_run": 2,
+            },
+            "dialogue": {
+                **_BASE_TEXT_PROFILE_PROCESSING,
+                "pause_strength": "light",
+                "dialogue_turn_splitting": True,
+                "speaker_label_mode": "drop",
+            },
+        },
     },
     "ui": {
         "title": "Kitten TTS Server",
@@ -65,9 +123,7 @@ ENV_KEY_MAP: Dict[str, str] = {
     "generation_defaults.language": "KITTEN_GEN_DEFAULT_LANGUAGE",
     "audio_output.format": "KITTEN_AUDIO_FORMAT",
     "audio_output.sample_rate": "KITTEN_AUDIO_SAMPLE_RATE",
-    "text_processing.filter_table_artifacts": "KITTEN_FILTER_TABLE_ARTIFACTS",
-    "text_processing.filter_reference_artifacts": "KITTEN_FILTER_REFERENCE_ARTIFACTS",
-    "text_processing.filter_symbol_noise": "KITTEN_FILTER_SYMBOL_NOISE",
+    "text_processing.active_profile": "KITTEN_TEXT_PROFILE",
     "ui.title": "KITTEN_UI_TITLE",
     "ui.show_language_select": "KITTEN_UI_SHOW_LANGUAGE_SELECT",
 }
@@ -154,6 +210,40 @@ class EnvConfigManager:
                 return float(str(raw_value).strip())
             except (ValueError, TypeError):
                 logger.warning("Invalid float env value '%s'. Falling back to default '%s'.", raw_value, default_value)
+                return default_value
+        if isinstance(default_value, dict):
+            try:
+                parsed = json.loads(str(raw_value).strip())
+                if isinstance(parsed, dict):
+                    return parsed
+                logger.warning(
+                    "Expected JSON object for env value '%s'. Falling back to default.",
+                    raw_value,
+                )
+                return default_value
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "Invalid JSON env value '%s'. Falling back to default '%s'.",
+                    raw_value,
+                    default_value,
+                )
+                return default_value
+        if isinstance(default_value, list):
+            try:
+                parsed = json.loads(str(raw_value).strip())
+                if isinstance(parsed, list):
+                    return parsed
+                logger.warning(
+                    "Expected JSON array for env value '%s'. Falling back to default.",
+                    raw_value,
+                )
+                return default_value
+            except (json.JSONDecodeError, TypeError):
+                logger.warning(
+                    "Invalid JSON env value '%s'. Falling back to default '%s'.",
+                    raw_value,
+                    default_value,
+                )
                 return default_value
         return str(raw_value)
 

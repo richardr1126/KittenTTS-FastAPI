@@ -41,3 +41,20 @@ Important options specifically adjusted in `values.yaml` for KittenTTS-FastAPI:
 - **`controllers.main.containers.main.image.tag`**: Update the image tag (e.g., `cpu` or `nvidia` depending on your setup).
 - **`persistence.model-cache`**: An `emptyDir` mount configured at `/app/model_cache` for storing HuggingFace models. You can change this to `persistentVolumeClaim` to persist downloaded models across pod restarts.
 - **GPU Passthrough**: You can uncomment the `limits` -> `nvidia.com/gpu: 1` section in `values.yaml` to assign a GPU to the container (requires `nvidia` tag).
+
+### App Environment Variables
+
+Set app-specific runtime options under:
+`app-template.controllers.main.containers.main.env`
+
+Commonly used keys:
+- `KITTEN_MODEL_REPO_ID`
+- `KITTEN_TTS_DEVICE`
+- `KITTEN_MODEL_CACHE`
+- `KITTEN_AUDIO_FORMAT`
+- `KITTEN_TEXT_PROFILE` (`balanced`, `narration`, `dialogue`)
+- `KITTEN_UI_TITLE`
+- `KITTEN_UI_SHOW_LANGUAGE_SELECT`
+
+Text preprocessing behavior is profile-driven. Select the active profile with
+`KITTEN_TEXT_PROFILE`.

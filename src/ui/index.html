@@ -165,9 +165,94 @@
                                                 MP3 is recommended for smaller file sizes (e.g., audiobooks).
                                             </p>
                                         </div>
+                                        <div>
+                                            <label for="text-profile" class="label-base">Text Profile</label>
+                                            <select id="text-profile" name="text_profile" class="select-base w-44">
+                                                <option value="balanced" selected>Balanced</option>
+                                                <option value="narration">Narration</option>
+                                                <option value="dialogue">Dialogue</option>
+                                            </select>
+                                            <p class="text-xs text-slate-500 dark:text-slate-400 mt-1.5">
+                                                Tunes pause and dialogue preprocessing for this request.
+                                            </p>
+                                        </div>
                                         <p class="col-span-1 md:col-span-2 mt-4 text-xs text-slate-500 dark:text-slate-400">
                                             Generation defaults come from <code class="code-inline">.env</code>. Edit
                                             <code class="code-inline">.env</code> and restart the server to apply changes.
+                                        </p>
+                                    </div>
+                                </details>
+                            </div>
+
+                            <div class="mb-6">
+                                <details class="group">
+                                    <summary class="list-none flex cursor-pointer items-center group">
+                                        <span
+                                            class="text-sm font-medium label-base group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
+                                            Text Processing
+                                        </span>
+                                        <span
+                                            class="ml-1.5 text-slate-400 group-hover:text-indigo-500 dark:group-hover:text-indigo-400 transition-colors">
+                                            <svg class="group-open:rotate-180 h-5 w-5 transition-transform duration-200 ease-in-out"
+                                                viewBox="0 0 20 20" fill="currentColor">
+                                                <path fill-rule="evenodd"
+                                                    d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z"
+                                                    clip-rule="evenodd" />
+                                            </svg>
+                                        </span>
+                                    </summary>
+                                    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-5">
+                                        <div>
+                                            <label for="pause-strength" class="label-base">Pause Strength</label>
+                                            <select id="pause-strength" name="pause_strength" class="select-base w-36">
+                                                <option value="light">Light</option>
+                                                <option value="medium" selected>Medium</option>
+                                                <option value="strong">Strong</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="speaker-label-mode" class="label-base">Speaker Labels</label>
+                                            <select id="speaker-label-mode" name="speaker_label_mode"
+                                                class="select-base w-36">
+                                                <option value="drop" selected>Drop Labels</option>
+                                                <option value="speak">Speak Labels</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label for="max-punct-run" class="label-base">
+                                                Max Punctuation Run (<span id="max-punct-run-value"
+                                                    class="font-semibold tabular-nums">3</span>)
+                                            </label>
+                                            <input type="range" id="max-punct-run" name="max_punct_run" min="1"
+                                                max="6" step="1" value="3" class="slider-base">
+                                        </div>
+                                        <div class="flex flex-col gap-3 pt-1">
+                                            <label for="normalize-pause-punctuation"
+                                                class="flex items-center cursor-pointer text-sm label-base select-none">
+                                                <input type="checkbox" id="normalize-pause-punctuation"
+                                                    name="normalize_pause_punctuation"
+                                                    class="mr-2 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:focus:ring-offset-slate-800 dark:checked:bg-indigo-500 dark:checked:border-indigo-500"
+                                                    checked>
+                                                Normalize pause punctuation
+                                            </label>
+                                            <label for="dialogue-turn-splitting"
+                                                class="flex items-center cursor-pointer text-sm label-base select-none">
+                                                <input type="checkbox" id="dialogue-turn-splitting"
+                                                    name="dialogue_turn_splitting"
+                                                    class="mr-2 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:focus:ring-offset-slate-800 dark:checked:bg-indigo-500 dark:checked:border-indigo-500">
+                                                Dialogue turn splitting
+                                            </label>
+                                            <label for="remove-punctuation"
+                                                class="flex items-center cursor-pointer text-sm label-base select-none">
+                                                <input type="checkbox" id="remove-punctuation" name="remove_punctuation"
+                                                    class="mr-2 h-4 w-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 dark:border-slate-600 dark:bg-slate-700 dark:focus:ring-offset-slate-800 dark:checked:bg-indigo-500 dark:checked:border-indigo-500">
+                                                Remove punctuation
+                                            </label>
+                                        </div>
+                                        <p class="col-span-1 md:col-span-2 text-xs text-slate-500 dark:text-slate-400">
+                                            These controls map directly to <code class="code-inline">/tts</code>
+                                            <code class="code-inline">text_options</code>.
+                                            OpenAI-compatible requests still use server defaults.
                                         </p>
                                     </div>
                                 </details>

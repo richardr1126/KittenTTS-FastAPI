@@ -59,9 +59,7 @@ Supported environment variables:
 *   `KITTEN_GEN_DEFAULT_LANGUAGE` (default: `en`)
 *   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`, `aac`)
 *   `KITTEN_AUDIO_SAMPLE_RATE` (default: `24000`)
-*   `KITTEN_FILTER_TABLE_ARTIFACTS` (default: `true`)
-*   `KITTEN_FILTER_REFERENCE_ARTIFACTS` (default: `true`)
-*   `KITTEN_FILTER_SYMBOL_NOISE` (default: `true`)
+*   `KITTEN_TEXT_PROFILE` (default: `balanced`, options: `balanced`, `narration`, `dialogue`)
 *   `KITTEN_UI_TITLE` (default: `Kitten TTS Server`)
 *   `KITTEN_UI_SHOW_LANGUAGE_SELECT` (default: `true`)
 
@@ -147,6 +145,27 @@ curl http://localhost:8005/v1/models
 curl http://localhost:8005/v1/audio/voices
 ```
 
+### Custom Endpoint (`/tts`) with Text Profile
+```bash
+curl http://localhost:8005/tts \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Alice: Hi there.\nBob: Hey, ready to start?",
+    "voice": "Jasper",
+    "output_format": "mp3",
+    "split_text": true,
+    "chunk_size": 120,
+    "speed": 1.0,
+    "text_options": {
+      "profile": "dialogue"
+    }
+  }' \
+  --output speech.mp3
+```
+`/tts` supports request-level `text_options` overrides for:
+`profile`, `remove_punctuation`, `normalize_pause_punctuation`, `pause_strength`, `dialogue_turn_splitting`, `speaker_label_mode`, `max_punct_run`.
+All other preprocessing flags are profile-defined server defaults.
+
 ### Interactive Docs
 Visit `http://localhost:8005/docs` for the full Swagger UI.
 
@@ -161,7 +180,11 @@ Copy `.env.example` to `.env` and edit values as needed, then restart the server
 *   **`KITTEN_AUDIO_FORMAT`**: `wav`, `mp3`, `opus`, or `aac`.
 *   **`KITTEN_MODEL_REPO_ID`**: Hugging Face model repo.
 *   **`KITTEN_MODEL_CACHE`**: Model cache directory path.
+*   **`KITTEN_TEXT_PROFILE`**: Active text profile (`balanced`, `narration`, `dialogue`).
+*   **Profile defaults**: Full preprocessing defaults (cleanup + normalization pipeline flags) are defined in `text_processing.profiles` in `src/config.py`.
+*   **Override model**: Selected profile provides the baseline. `/tts` can override only this focused subset via `text_options`: `remove_punctuation`, `normalize_pause_punctuation`, `pause_strength`, `dialogue_turn_splitting`, `speaker_label_mode`, `max_punct_run`.
 *   **Text preprocessing** is enabled by default and includes cleanup/normalization steps (for example, mixed alphanumeric tokens like `gpt4` are normalized to improve phonemization stability).
+*   **OpenAI route compatibility**: `/v1/audio/speech` keeps strict OpenAI request fields; advanced text options are configured server-side (profile/defaults).
 *   **UI state** (last text, voice, theme) is stored in browser `localStorage`, not on the API server.
 
 ---

@@ -10,7 +10,7 @@ import yaml  # For loading presets
 import numpy as np
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import Optional, List, Literal
+from typing import Optional, List, Literal, Dict, Any
 
 from fastapi import (
     FastAPI,
@@ -110,17 +110,22 @@ def _preprocess_input_text(
     raw_text: str,
     *,
     context_label: str,
+    effective_text_options: Optional[Dict[str, Any]] = None,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
 ) -> str:
-    cleaned_text, preprocess_meta = engine.preprocess_text(raw_text)
+    cleaned_text, preprocess_meta = engine.preprocess_text(
+        raw_text,
+        effective_text_options=effective_text_options,
+    )
     logger.info(
-        "%s preprocessing complete: raw_len=%d, cleaned_len=%d, table_lines_removed=%d, reference_fragments_removed=%d, symbol_noise_collapsed=%d",
+        "%s preprocessing complete: raw_len=%d, cleaned_len=%d, table_lines_removed=%d, reference_fragments_removed=%d, symbol_noise_collapsed=%d, pause_punctuation_normalized=%d",
         context_label,
         len(raw_text),
         preprocess_meta.get("output_length", 0),
         preprocess_meta.get("table_lines_removed", 0),
         preprocess_meta.get("reference_fragments_removed", 0),
         preprocess_meta.get("symbol_noise_collapsed", 0),
+        preprocess_meta.get("pause_punctuation_normalized", 0),
     )
     if perf_monitor is not None:
         perf_monitor.record("Input text preprocessed")
@@ -139,14 +144,32 @@ def _resolve_text_chunks(
     split_text: bool,
     chunk_size: int,
     context_label: str,
+    effective_text_options: Optional[Dict[str, Any]] = None,
     precleaned_text: Optional[str] = None,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
 ) -> List[str]:
-    if split_text and len(raw_text) > (chunk_size * 1.5):
+    text_options = effective_text_options or {}
+    dialogue_turn_splitting = bool(text_options.get("dialogue_turn_splitting", False))
+    speaker_label_mode = str(text_options.get("speaker_label_mode", "drop"))
+    if split_text and (len(raw_text) > (chunk_size * 1.5) or dialogue_turn_splitting):
         logger.info(f"Splitting text into chunks of size ~{chunk_size}.")
-        text_chunks = nlp.chunk_text_by_sentences(raw_text, chunk_size)
+        text_chunks, chunk_meta = nlp.chunk_text_by_sentences_with_metadata(
+            raw_text,
+            chunk_size,
+            dialogue_turn_splitting=dialogue_turn_splitting,
+            speaker_label_mode=speaker_label_mode,
+        )
+        logger.info(
+            "%s chunk analysis: dialogue_turns_detected=%d, speaker_labels_dropped=%d",
+            context_label,
+            chunk_meta.get("dialogue_turns_detected", 0),
+            chunk_meta.get("speaker_labels_dropped", 0),
+        )
         if perf_monitor is not None:
-            perf_monitor.record(f"Text split into {len(text_chunks)} chunks")
+            perf_monitor.record(
+                "Text split into "
+                f"{len(text_chunks)} chunks (dialogue turns: {chunk_meta.get('dialogue_turns_detected', 0)})"
+            )
     else:
         text_chunks = [precleaned_text if precleaned_text is not None else raw_text]
         logger.info(
@@ -163,7 +186,10 @@ def _resolve_text_chunks(
     if split_text:
         cleaned_chunks = []
         for idx, chunk in enumerate(text_chunks, start=1):
-            cleaned_chunk, _ = engine.preprocess_text(chunk)
+            cleaned_chunk, _ = engine.preprocess_text(
+                chunk,
+                effective_text_options=effective_text_options,
+            )
             if engine.is_speakable_text(cleaned_chunk):
                 cleaned_chunks.append(cleaned_chunk)
             else:
@@ -307,16 +333,23 @@ def _generate_audio_bytes(
     split_text: bool,
     chunk_size: int,
     context_label: str,
+    text_options: Optional[Dict[str, Any]] = None,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
 ) -> bytes:
+    effective_text_options = engine.resolve_text_options(text_options)
+    logger.debug("%s effective text options: %s", context_label, effective_text_options)
     cleaned_text = _preprocess_input_text(
-        raw_text, context_label=context_label, perf_monitor=perf_monitor
+        raw_text,
+        context_label=context_label,
+        effective_text_options=effective_text_options,
+        perf_monitor=perf_monitor,
     )
     text_chunks = _resolve_text_chunks(
         raw_text,
         split_text=split_text,
         chunk_size=chunk_size,
         context_label=context_label,
+        effective_text_options=effective_text_options,
         precleaned_text=cleaned_text,
         perf_monitor=perf_monitor,
     )
@@ -607,7 +640,7 @@ async def custom_tts_endpoint(
         f"Received /tts request: voice='{request.voice}', format='{request.output_format}'"
     )
     logger.debug(
-        f"TTS params: speed={request.speed}, split={request.split_text}, chunk_size={request.chunk_size}"
+        f"TTS params: speed={request.speed}, split={request.split_text}, chunk_size={request.chunk_size}, text_options={request.text_options}"
     )
     logger.debug(f"Input text (first 100 chars): '{request.text[:100]}...'")
     perf_monitor.record("Parameters resolved")
@@ -622,6 +655,11 @@ async def custom_tts_endpoint(
         request.split_text if request.split_text is not None else True
     )
     chunk_size_to_use = request.chunk_size if request.chunk_size is not None else 120
+    request_text_options = (
+        request.text_options.model_dump(exclude_none=True)
+        if request.text_options is not None
+        else None
+    )
 
     encoded_audio_bytes = _generate_audio_bytes(
         raw_text=request.text,
@@ -632,6 +670,7 @@ async def custom_tts_endpoint(
         split_text=split_text_to_use,
         chunk_size=chunk_size_to_use,
         context_label="/tts",
+        text_options=request_text_options,
         perf_monitor=perf_monitor,
     )
 
@@ -701,6 +740,7 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
             split_text=_OPENAI_ROUTE_DEFAULT_SPLIT_TEXT,
             chunk_size=_OPENAI_ROUTE_DEFAULT_CHUNK_SIZE,
             context_label="/v1/audio/speech",
+            text_options=None,
             perf_monitor=perf_monitor,
         )
         media_type = _media_type_for_format(request.response_format)

@@ -219,6 +219,63 @@ def test_tts_accepts_non_latin_text_when_speakable(api_client: TestClient, monke
     assert all(clean_flag is False for _, clean_flag in captured_calls)
 
 
+def test_tts_route_passes_text_options_to_generation(api_client: TestClient, monkeypatch):
+    captured_kwargs = {}
+
+    def fake_generate_audio_bytes(**kwargs):
+        captured_kwargs.update(kwargs)
+        return b"x" * 512
+
+    monkeypatch.setattr(server, "_generate_audio_bytes", fake_generate_audio_bytes)
+
+    payload = {
+        "text": "Alice: Hello.\nBob: Hi there.",
+        "voice": "Bella",
+        "output_format": "wav",
+        "split_text": True,
+        "chunk_size": 120,
+        "speed": 1.0,
+        "text_options": {"profile": "dialogue"},
+    }
+
+    response = api_client.post("/tts", json=payload)
+
+    assert response.status_code == 200, response.text
+    assert captured_kwargs["text_options"]["profile"] == "dialogue"
+
+
+def test_tts_dialogue_profile_drops_speaker_labels(api_client: TestClient, monkeypatch):
+    captured_calls = []
+
+    def fake_synthesize(
+        text: str, voice: str, speed: float = 1.0, clean_text: bool = True
+    ):
+        captured_calls.append((text, clean_text))
+        return np.ones(1200, dtype=np.float32), 24000
+
+    monkeypatch.setattr(server.engine, "synthesize", fake_synthesize)
+    monkeypatch.setattr(server.utils, "encode_audio", lambda **_: b"x" * 512)
+
+    payload = {
+        "text": "Alice: Hello there.\nBob: Hi, ready to begin?",
+        "voice": "Bella",
+        "output_format": "wav",
+        "split_text": True,
+        "chunk_size": 120,
+        "speed": 1.0,
+        "text_options": {"profile": "dialogue"},
+    }
+
+    response = api_client.post("/tts", json=payload)
+
+    joined_text = " ".join(chunk for chunk, _ in captured_calls)
+    assert response.status_code == 200, response.text
+    assert captured_calls
+    assert "alice:" not in joined_text
+    assert "bob:" not in joined_text
+    assert "hello there" in joined_text
+
+
 @pytest.mark.asyncio
 async def test_openai_route_accepts_kittentts_alias_and_uses_shared_default_chunking(
     monkeypatch,
@@ -246,6 +303,7 @@ async def test_openai_route_accepts_kittentts_alias_and_uses_shared_default_chun
     assert len(speech.content) > 100
     assert captured_kwargs["split_text"] is server._OPENAI_ROUTE_DEFAULT_SPLIT_TEXT
     assert captured_kwargs["chunk_size"] == server._OPENAI_ROUTE_DEFAULT_CHUNK_SIZE
+    assert captured_kwargs["text_options"] is None
 
 
 @pytest.mark.asyncio

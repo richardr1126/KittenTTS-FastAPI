@@ -57,6 +57,14 @@ def test_normal_prose_regression_behavior():
     text = "Hello there, this is a normal paragraph about science and progress."
     cleaned = preprocessor(text)
 
+    assert cleaned == "hello there, this is a normal paragraph about science and progress."
+
+
+def test_remove_punctuation_can_be_enabled():
+    preprocessor = TextPreprocessor(remove_punctuation=True)
+    text = "Hello there, this is a normal paragraph about science and progress."
+    cleaned = preprocessor(text)
+
     assert cleaned == "hello there this is a normal paragraph about science and progress"
 
 
@@ -78,7 +86,7 @@ def test_alphanumeric_tokens_are_split_for_stable_phonemization():
     assert "gpt four" in cleaned
     assert "ipv six" in cleaned
     assert "r two d two" in cleaned
-    assert "v one point two three" in cleaned
+    assert "v one point two.three" in cleaned
 
 
 def test_chunk_text_by_sentences_respects_chunk_size():
@@ -93,3 +101,53 @@ def test_chunk_text_by_sentences_respects_chunk_size():
 def test_chunk_text_by_sentences_handles_empty_input():
     assert nlp.chunk_text_by_sentences("", chunk_size=120) == []
     assert nlp.chunk_text_by_sentences("   ", chunk_size=120) == []
+
+
+def test_normalize_pause_punctuation_converts_symbols_for_prosody():
+    text = "Wait… (now) — really????"
+    normalized, replacement_count = nlp.normalize_pause_punctuation(
+        text,
+        pause_strength="strong",
+        max_punct_run=2,
+    )
+
+    assert replacement_count >= 3
+    assert "…" not in normalized
+    assert "(" not in normalized and ")" not in normalized
+    assert "—" not in normalized
+    assert "???" not in normalized and "????" not in normalized
+
+
+def test_chunk_text_dialogue_mode_drops_speaker_labels():
+    text = "Alice: Hello there.\nBob: Hi, ready to begin?"
+    chunks, metadata = nlp.chunk_text_by_sentences_with_metadata(
+        text,
+        chunk_size=120,
+        dialogue_turn_splitting=True,
+        speaker_label_mode="drop",
+    )
+
+    joined = " ".join(chunks)
+    assert chunks
+    assert metadata["dialogue_turns_detected"] == 2
+    assert metadata["speaker_labels_dropped"] == 2
+    assert "Alice:" not in joined
+    assert "Bob:" not in joined
+    assert "Hello there." in joined
+
+
+def test_chunk_text_dialogue_mode_can_keep_speaker_labels():
+    text = "Alice: Hello there.\nBob: Hi, ready to begin?"
+    chunks, metadata = nlp.chunk_text_by_sentences_with_metadata(
+        text,
+        chunk_size=120,
+        dialogue_turn_splitting=True,
+        speaker_label_mode="speak",
+    )
+
+    joined = " ".join(chunks)
+    assert chunks
+    assert metadata["dialogue_turns_detected"] == 2
+    assert metadata["speaker_labels_dropped"] == 0
+    assert "Alice:" in joined
+    assert "Bob:" in joined

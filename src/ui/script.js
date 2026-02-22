@@ -54,6 +54,14 @@ document.addEventListener('DOMContentLoaded', async function () {
     const languageSelectContainer = document.getElementById('language-select-container');
     const languageSelect = document.getElementById('language');
     const outputFormatSelect = document.getElementById('output-format');
+    const textProfileSelect = document.getElementById('text-profile');
+    const pauseStrengthSelect = document.getElementById('pause-strength');
+    const speakerLabelModeSelect = document.getElementById('speaker-label-mode');
+    const maxPunctRunSlider = document.getElementById('max-punct-run');
+    const maxPunctRunValueDisplay = document.getElementById('max-punct-run-value');
+    const normalizePausePunctuationToggle = document.getElementById('normalize-pause-punctuation');
+    const dialogueTurnSplittingToggle = document.getElementById('dialogue-turn-splitting');
+    const removePunctuationToggle = document.getElementById('remove-punctuation');
     const resetSettingsBtn = document.getElementById('reset-settings-btn');
     const audioPlayerContainer = document.getElementById('audio-player-container');
     const loadingOverlay = document.getElementById('loading-overlay');
@@ -118,6 +126,44 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     }
 
+    function getProfileDefaults(profileName) {
+        const defaults = {
+            remove_punctuation: false,
+            normalize_pause_punctuation: true,
+            pause_strength: 'medium',
+            dialogue_turn_splitting: false,
+            speaker_label_mode: 'drop',
+            max_punct_run: 3
+        };
+        const profiles = currentConfig?.text_processing?.profiles || {};
+        const selectedProfile = profiles?.[profileName] || {};
+        return { ...defaults, ...selectedProfile };
+    }
+
+    function applyTextOptionsToControls(textOptions = {}) {
+        if (pauseStrengthSelect && textOptions.pause_strength !== undefined) {
+            pauseStrengthSelect.value = textOptions.pause_strength;
+        }
+        if (speakerLabelModeSelect && textOptions.speaker_label_mode !== undefined) {
+            speakerLabelModeSelect.value = textOptions.speaker_label_mode;
+        }
+        if (normalizePausePunctuationToggle && textOptions.normalize_pause_punctuation !== undefined) {
+            normalizePausePunctuationToggle.checked = !!textOptions.normalize_pause_punctuation;
+        }
+        if (dialogueTurnSplittingToggle && textOptions.dialogue_turn_splitting !== undefined) {
+            dialogueTurnSplittingToggle.checked = !!textOptions.dialogue_turn_splitting;
+        }
+        if (removePunctuationToggle && textOptions.remove_punctuation !== undefined) {
+            removePunctuationToggle.checked = !!textOptions.remove_punctuation;
+        }
+        if (maxPunctRunSlider && textOptions.max_punct_run !== undefined) {
+            maxPunctRunSlider.value = String(textOptions.max_punct_run);
+        }
+        if (maxPunctRunValueDisplay && maxPunctRunSlider) {
+            maxPunctRunValueDisplay.textContent = maxPunctRunSlider.value;
+        }
+    }
+
     // --- Theme Management ---
     function applyTheme(theme) {
         const isDark = theme === 'dark';
@@ -152,6 +198,13 @@ document.addEventListener('DOMContentLoaded', async function () {
             last_voice: currentVoice,
             last_chunk_size: chunkSizeSlider ? parseInt(chunkSizeSlider.value, 10) : 120,
             last_split_text_enabled: splitTextToggle ? splitTextToggle.checked : true,
+            last_text_profile: textProfileSelect ? textProfileSelect.value : 'balanced',
+            last_pause_strength: pauseStrengthSelect ? pauseStrengthSelect.value : 'medium',
+            last_speaker_label_mode: speakerLabelModeSelect ? speakerLabelModeSelect.value : 'drop',
+            last_max_punct_run: maxPunctRunSlider ? parseInt(maxPunctRunSlider.value, 10) : 3,
+            last_normalize_pause_punctuation: normalizePausePunctuationToggle ? normalizePausePunctuationToggle.checked : true,
+            last_dialogue_turn_splitting: dialogueTurnSplittingToggle ? dialogueTurnSplittingToggle.checked : false,
+            last_remove_punctuation: removePunctuationToggle ? removePunctuationToggle.checked : false,
             hide_generation_warning: hideGenerationWarning,
             theme: localStorage.getItem('uiTheme') || 'dark'
         };
@@ -238,6 +291,24 @@ document.addEventListener('DOMContentLoaded', async function () {
         if (speedValueDisplay) speedValueDisplay.textContent = speedSlider.value;
         if (languageSelect) languageSelect.value = genDefaults.language || 'en';
         if (outputFormatSelect) outputFormatSelect.value = currentConfig?.audio_output?.format || 'mp3';
+        if (textProfileSelect) {
+            const configuredProfile = currentConfig?.text_processing?.active_profile || 'balanced';
+            const restoredProfile = currentUiState.last_text_profile || configuredProfile;
+            const validProfiles = ['balanced', 'narration', 'dialogue'];
+            textProfileSelect.value = validProfiles.includes(restoredProfile)
+                ? restoredProfile
+                : 'balanced';
+        }
+        const activeProfile = textProfileSelect ? textProfileSelect.value : 'balanced';
+        const effectiveDefaults = getProfileDefaults(activeProfile);
+        applyTextOptionsToControls({
+            pause_strength: currentUiState.last_pause_strength ?? effectiveDefaults.pause_strength,
+            speaker_label_mode: currentUiState.last_speaker_label_mode ?? effectiveDefaults.speaker_label_mode,
+            max_punct_run: currentUiState.last_max_punct_run ?? effectiveDefaults.max_punct_run,
+            normalize_pause_punctuation: currentUiState.last_normalize_pause_punctuation ?? effectiveDefaults.normalize_pause_punctuation,
+            dialogue_turn_splitting: currentUiState.last_dialogue_turn_splitting ?? effectiveDefaults.dialogue_turn_splitting,
+            remove_punctuation: currentUiState.last_remove_punctuation ?? effectiveDefaults.remove_punctuation,
+        });
         if (hideGenerationWarningCheckbox) hideGenerationWarningCheckbox.checked = hideGenerationWarning;
 
         if (textArea && !textArea.value && appPresets && appPresets.length > 0) {
@@ -262,6 +333,24 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
         if (languageSelect) languageSelect.addEventListener('change', debouncedSaveState);
         if (outputFormatSelect) outputFormatSelect.addEventListener('change', debouncedSaveState);
+        if (textProfileSelect) {
+            textProfileSelect.addEventListener('change', () => {
+                const profileDefaults = getProfileDefaults(textProfileSelect.value);
+                applyTextOptionsToControls(profileDefaults);
+                debouncedSaveState();
+            });
+        }
+        if (pauseStrengthSelect) pauseStrengthSelect.addEventListener('change', debouncedSaveState);
+        if (speakerLabelModeSelect) speakerLabelModeSelect.addEventListener('change', debouncedSaveState);
+        if (normalizePausePunctuationToggle) normalizePausePunctuationToggle.addEventListener('change', debouncedSaveState);
+        if (dialogueTurnSplittingToggle) dialogueTurnSplittingToggle.addEventListener('change', debouncedSaveState);
+        if (removePunctuationToggle) removePunctuationToggle.addEventListener('change', debouncedSaveState);
+        if (maxPunctRunSlider) {
+            maxPunctRunSlider.addEventListener('input', () => {
+                if (maxPunctRunValueDisplay) maxPunctRunValueDisplay.textContent = maxPunctRunSlider.value;
+            });
+            maxPunctRunSlider.addEventListener('change', debouncedSaveState);
+        }
     }
 
     // --- Dynamic UI Population ---
@@ -320,6 +409,12 @@ document.addEventListener('DOMContentLoaded', async function () {
         const genParams = presetData.params || presetData;
         if (speedSlider && genParams.speed !== undefined) speedSlider.value = genParams.speed;
         if (languageSelect && genParams.language !== undefined) languageSelect.value = genParams.language;
+        if (outputFormatSelect && genParams.output_format !== undefined) outputFormatSelect.value = genParams.output_format;
+        if (splitTextToggle && genParams.split_text !== undefined) splitTextToggle.checked = !!genParams.split_text;
+        if (chunkSizeSlider && genParams.chunk_size !== undefined) {
+            chunkSizeSlider.value = String(genParams.chunk_size);
+            if (chunkSizeValue) chunkSizeValue.textContent = chunkSizeSlider.value;
+        }
         if (speedValueDisplay && speedSlider) speedValueDisplay.textContent = speedSlider.value;
 
         if (genParams.voice && voiceSelect) {
@@ -329,6 +424,19 @@ document.addEventListener('DOMContentLoaded', async function () {
                 currentVoice = genParams.voice;
             }
         }
+        if (genParams.text_options && typeof genParams.text_options === 'object') {
+            const textOptions = genParams.text_options;
+            if (textProfileSelect && textOptions.profile) {
+                textProfileSelect.value = textOptions.profile;
+            }
+            const profileDefaults = getProfileDefaults(textProfileSelect ? textProfileSelect.value : 'balanced');
+            applyTextOptionsToControls({ ...profileDefaults, ...textOptions });
+        } else if (textProfileSelect && genParams.text_profile) {
+            textProfileSelect.value = genParams.text_profile;
+            applyTextOptionsToControls(getProfileDefaults(textProfileSelect.value));
+        }
+
+        toggleChunkControlsVisibility();
 
         if (showNotif) showNotification(`Preset "${presetData.name}" loaded.`, 'info', 3000);
         debouncedSaveState();
@@ -452,6 +560,17 @@ document.addEventListener('DOMContentLoaded', async function () {
             chunk_size: parseInt(chunkSizeSlider.value, 10),
             output_format: outputFormatSelect.value || 'mp3'
         };
+        const textOptions = {};
+        if (textProfileSelect && textProfileSelect.value) textOptions.profile = textProfileSelect.value;
+        if (removePunctuationToggle) textOptions.remove_punctuation = removePunctuationToggle.checked;
+        if (normalizePausePunctuationToggle) textOptions.normalize_pause_punctuation = normalizePausePunctuationToggle.checked;
+        if (pauseStrengthSelect && pauseStrengthSelect.value) textOptions.pause_strength = pauseStrengthSelect.value;
+        if (dialogueTurnSplittingToggle) textOptions.dialogue_turn_splitting = dialogueTurnSplittingToggle.checked;
+        if (speakerLabelModeSelect && speakerLabelModeSelect.value) textOptions.speaker_label_mode = speakerLabelModeSelect.value;
+        if (maxPunctRunSlider) textOptions.max_punct_run = parseInt(maxPunctRunSlider.value, 10);
+        if (Object.keys(textOptions).length > 0) {
+            jsonData.text_options = textOptions;
+        }
         return jsonData;
     }
 

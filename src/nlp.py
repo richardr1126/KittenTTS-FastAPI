@@ -6,7 +6,7 @@ A comprehensive text preprocessing library for NLP pipelines.
 import re
 import logging
 import unicodedata
-from typing import Dict, Optional, Tuple, Set, List
+from typing import Any, Dict, Optional, Tuple, Set, List
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +219,9 @@ _RE_CAPTION_PREFIX = re.compile(
 _RE_SYMBOL_RUN = re.compile(r"[_|~=]{3,}")
 _RE_SEPARATOR_RUN = re.compile(r"(?<!\d)-{3,}(?!\d)")
 _RE_PUNCT_CLUSTER = re.compile(r"[^\w\s]{4,}")
+_RE_ELLIPSIS = re.compile(r"(?:\.{3,}|…)")
+_RE_REPEAT_PAUSE_PUNCT = re.compile(r"([,;:!?\.])\1+")
+_RE_BRACKET_CHARS = re.compile(r"[()\[\]{}<>]")
 
 
 # ─────────────────────────────────────────────
@@ -836,6 +839,57 @@ def filter_symbol_noise(text: str) -> Tuple[str, int]:
     return text, replacements
 
 
+def normalize_pause_punctuation(
+    text: str,
+    pause_strength: str = "medium",
+    max_punct_run: int = 3,
+) -> Tuple[str, int]:
+    """
+    Normalize punctuation into pause-friendly forms for better prosody.
+    Returns (normalized_text, replacement_count).
+    """
+    replacements = 0
+    pause_strength_normalized = str(pause_strength or "medium").strip().lower()
+    if pause_strength_normalized not in {"light", "medium", "strong"}:
+        pause_strength_normalized = "medium"
+
+    try:
+        max_punct_run = int(max_punct_run)
+    except (TypeError, ValueError):
+        max_punct_run = 3
+    max_punct_run = max(1, min(6, max_punct_run))
+
+    # Normalize common unicode quotes so downstream processing sees consistent tokens.
+    text, count = re.subn(r"[“”«»]", '"', text)
+    replacements += count
+    text, count = re.subn(r"[‘’]", "'", text)
+    replacements += count
+
+    dash_pause = "," if pause_strength_normalized == "light" else "."
+    ellipsis_pause = "," if pause_strength_normalized == "light" else "."
+
+    text, count = _RE_ELLIPSIS.subn(ellipsis_pause, text)
+    replacements += count
+
+    text, count = re.subn(r"[—–]+", dash_pause, text)
+    replacements += count
+
+    # Replace bracket-like punctuation and hard separators with soft pauses.
+    text, count = _RE_BRACKET_CHARS.subn(",", text)
+    replacements += count
+
+    def _cap_run(match: re.Match) -> str:
+        punct = match.group(1)
+        run_len = len(match.group(0))
+        capped_len = min(run_len, max_punct_run)
+        return punct * capped_len
+
+    text, count = _RE_REPEAT_PAUSE_PUNCT.subn(_cap_run, text)
+    replacements += count
+
+    return text, replacements
+
+
 # ─────────────────────────────────────────────
 # Pipeline helper
 # ─────────────────────────────────────────────
@@ -883,7 +937,7 @@ class TextPreprocessor:
         remove_html: bool = True,
         remove_hashtags: bool = False,
         remove_mentions: bool = False,
-        remove_punctuation: bool = True,
+        remove_punctuation: bool = False,
         remove_stopwords: bool = False,
         stopwords: Optional[set] = None,
         normalize_unicode: bool = True,
@@ -892,6 +946,9 @@ class TextPreprocessor:
         filter_table_artifacts: bool = True,
         filter_reference_artifacts: bool = True,
         filter_symbol_noise: bool = True,
+        normalize_pause_punctuation: bool = True,
+        pause_strength: str = "medium",
+        max_punct_run: int = 3,
     ):
         self.config = {k: v for k, v in locals().items() if k != "self"}
         self._stopwords = stopwords
@@ -911,6 +968,7 @@ class TextPreprocessor:
             "table_lines_removed": 0,
             "reference_fragments_removed": 0,
             "symbol_noise_collapsed": 0,
+            "pause_punctuation_normalized": 0,
         }
 
         if text is None:
@@ -930,6 +988,13 @@ class TextPreprocessor:
         if cfg["filter_symbol_noise"]:
             text, collapsed_symbols = filter_symbol_noise(text)
             metadata["symbol_noise_collapsed"] = collapsed_symbols
+        if cfg["normalize_pause_punctuation"]:
+            text, normalized_punct = normalize_pause_punctuation(
+                text,
+                pause_strength=cfg["pause_strength"],
+                max_punct_run=cfg["max_punct_run"],
+            )
+            metadata["pause_punctuation_normalized"] = normalized_punct
         if cfg["remove_html"]:
             text = remove_html_tags(text)
         if cfg["remove_urls"]:
@@ -1067,6 +1132,64 @@ POTENTIAL_END_PATTERN = re.compile(r'([.!?])(["\']?)(\s+|$)')
 BULLET_POINT_PATTERN = re.compile(r"(?:^|\n)\s*([-•*]|\d+\.)\s+")
 # Placeholder for non-verbal cues or special instructions within text (e.g., (laughs), (sighs)).
 NON_VERBAL_CUE_PATTERN = re.compile(r"(\([\w\s'-]+\))")
+DIALOGUE_TURN_PATTERN = re.compile(
+    r"^\s*([A-Za-z][A-Za-z .'\-]{0,30})\s*(?::|-)\s*(.+?)\s*$"
+)
+
+
+def _split_dialogue_turns(
+    text: str,
+    speaker_label_mode: str = "drop",
+) -> Tuple[List[str], Dict[str, int]]:
+    """
+    Split script-like dialogue lines into speaker turns.
+    A turn is recognized for lines like:
+        "Alice: Hello"
+        "BOB - Sounds good"
+    """
+    metadata = {"dialogue_turns_detected": 0, "speaker_labels_dropped": 0}
+    if not text or text.isspace():
+        return [], metadata
+
+    label_mode = str(speaker_label_mode or "drop").strip().lower()
+    if label_mode not in {"drop", "speak"}:
+        label_mode = "drop"
+
+    lines = [line for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    provisional_matches = [DIALOGUE_TURN_PATTERN.match(line) for line in lines]
+    detected_turns = sum(1 for m in provisional_matches if m is not None)
+    metadata["dialogue_turns_detected"] = detected_turns
+
+    # Require at least two turn markers to reduce false positives in prose.
+    if detected_turns < 2:
+        return [text], metadata
+
+    turns: List[str] = []
+    for line, match in zip(lines, provisional_matches):
+        stripped = line.strip()
+        if not stripped:
+            continue
+
+        if match is None:
+            if turns:
+                turns[-1] = f"{turns[-1]} {stripped}".strip()
+            else:
+                turns.append(stripped)
+            continue
+
+        speaker = match.group(1).strip()
+        utterance = match.group(2).strip()
+        if not utterance:
+            continue
+
+        if label_mode == "speak":
+            turn_text = f"{speaker}: {utterance}"
+        else:
+            turn_text = utterance
+            metadata["speaker_labels_dropped"] += 1
+        turns.append(turn_text)
+
+    return turns if turns else [text], metadata
 
 
 def _is_valid_sentence_end(text: str, period_index: int) -> bool:
@@ -1207,37 +1330,45 @@ def split_into_sentences(text: str) -> List[str]:
     return _split_text_by_punctuation(text)
 
 
-def _segment_text_for_chunking(full_text: str) -> List[Tuple[Optional[str], str]]:
+def _segment_text_for_chunking(
+    full_text: str,
+    *,
+    dialogue_turn_splitting: bool = False,
+    speaker_label_mode: str = "drop",
+) -> Tuple[List[Tuple[Optional[str], str]], Dict[str, int]]:
     """
-    Internal helper to segment text by non-verbal cues (e.g., (laughs)) and then
-    further split those segments into sentences.
-    Assigns a placeholder "tag" (here, None or empty string) as this system is single-speaker.
-    The tuple structure (tag, sentence) is maintained for compatibility with chunking logic
-    that might expect it, even if the tag itself isn't used for speaker differentiation.
-
-    Args:
-        full_text: The complete input text.
-
-    Returns:
-        A list of tuples, where each tuple is (placeholder_tag, sentence_text).
+    Internal helper to segment text by dialogue turns/non-verbal cues, then sentences.
+    Returns (segments, metadata).
     """
+    metadata = {
+        "dialogue_turns_detected": 0,
+        "speaker_labels_dropped": 0,
+    }
     if not full_text or full_text.isspace():
-        return []
+        return [], metadata
+
+    source_segments = [full_text]
+    if dialogue_turn_splitting:
+        source_segments, dialogue_meta = _split_dialogue_turns(
+            full_text,
+            speaker_label_mode=speaker_label_mode,
+        )
+        metadata.update(dialogue_meta)
 
     placeholder_tag: Optional[str] = None
     segmented_with_tags: List[Tuple[Optional[str], str]] = []
-    parts_and_cues = NON_VERBAL_CUE_PATTERN.split(full_text)
-
-    for part in parts_and_cues:
-        if not part or part.isspace():
-            continue
-        if NON_VERBAL_CUE_PATTERN.fullmatch(part):
-            segmented_with_tags.append((placeholder_tag, part.strip()))
-        else:
-            sentences_from_part = split_into_sentences(part.strip())
-            for sentence in sentences_from_part:
-                if sentence:
-                    segmented_with_tags.append((placeholder_tag, sentence))
+    for source_segment in source_segments:
+        parts_and_cues = NON_VERBAL_CUE_PATTERN.split(source_segment)
+        for part in parts_and_cues:
+            if not part or part.isspace():
+                continue
+            if NON_VERBAL_CUE_PATTERN.fullmatch(part):
+                segmented_with_tags.append((placeholder_tag, part.strip()))
+            else:
+                sentences_from_part = split_into_sentences(part.strip())
+                for sentence in sentences_from_part:
+                    if sentence:
+                        segmented_with_tags.append((placeholder_tag, sentence))
 
     if not segmented_with_tags and full_text.strip():
         segmented_with_tags.append((placeholder_tag, full_text.strip()))
@@ -1245,34 +1376,38 @@ def _segment_text_for_chunking(full_text: str) -> List[Tuple[Optional[str], str]
     logger.debug(
         "Preprocessed text into %d segments/sentences.", len(segmented_with_tags)
     )
-    return segmented_with_tags
+    return segmented_with_tags, metadata
 
 
-def chunk_text_by_sentences(
+def chunk_text_by_sentences_with_metadata(
     full_text: str,
     chunk_size: int,
-) -> List[str]:
+    *,
+    dialogue_turn_splitting: bool = False,
+    speaker_label_mode: str = "drop",
+) -> Tuple[List[str], Dict[str, int]]:
     """
     Chunks text into manageable pieces for TTS processing, respecting sentence boundaries
-    and a maximum chunk character length. Designed for single-speaker text, but maintains
-    a structure that can handle segments (like non-verbal cues) separately.
-
-    Args:
-        full_text: The complete text to be chunked.
-        chunk_size: The desired maximum character length for each chunk.
-                    Sentences longer than this will form their own chunk.
-
-    Returns:
-        A list of text chunks, ready for TTS.
+    and a maximum chunk character length.
+    Returns (chunks, metadata).
     """
+    metadata = {
+        "dialogue_turns_detected": 0,
+        "speaker_labels_dropped": 0,
+    }
     if not full_text or full_text.isspace():
-        return []
+        return [], metadata
     if chunk_size <= 0:
         chunk_size = float("inf")
 
-    processed_segments = _segment_text_for_chunking(full_text)
+    processed_segments, segment_meta = _segment_text_for_chunking(
+        full_text,
+        dialogue_turn_splitting=dialogue_turn_splitting,
+        speaker_label_mode=speaker_label_mode,
+    )
+    metadata.update(segment_meta)
     if not processed_segments:
-        return []
+        return [], metadata
 
     text_chunks: List[str] = []
     current_chunk_sentences: List[str] = []
@@ -1312,10 +1447,26 @@ def chunk_text_by_sentences(
         logger.warning(
             "Text chunking resulted in zero chunks despite non-empty input. Returning full text as one chunk."
         )
-        return [full_text.strip()]
+        return [full_text.strip()], metadata
 
     logger.info("Text chunking complete. Generated %d chunk(s).", len(text_chunks))
-    return text_chunks
+    return text_chunks, metadata
+
+
+def chunk_text_by_sentences(
+    full_text: str,
+    chunk_size: int,
+    *,
+    dialogue_turn_splitting: bool = False,
+    speaker_label_mode: str = "drop",
+) -> List[str]:
+    chunks, _ = chunk_text_by_sentences_with_metadata(
+        full_text,
+        chunk_size,
+        dialogue_turn_splitting=dialogue_turn_splitting,
+        speaker_label_mode=speaker_label_mode,
+    )
+    return chunks
 
 
 # ─────────────────────────────────────────────
