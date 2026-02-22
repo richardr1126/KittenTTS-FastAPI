@@ -3,15 +3,16 @@ app-template:
   
   controllers:
     main:
+      replicas: 1
+      strategy: RollingUpdate
       annotations:
         reloader.stakater.com/auto: "true"
       containers:
         main:
           image:
             repository: ghcr.io/richardr1126/kittentts-fastapi-cpu
-            # tag: cpu # Uncomment for CPU-only image
-            # tag: nvidia # Uncomment for GPU image
-            tag: latest # Adjust to specify a version
+            # repository: ghcr.io/richardr1126/kittentts-fastapi-gpu # Uncomment for GPU image
+            tag: latest # Use latest, main, or a release tag like v1.2.3
             pullPolicy: IfNotPresent
           env:
             TZ: UTC
@@ -42,7 +43,6 @@ app-template:
             readiness: *probe
           resources:
             requests:
-              cpu: 50m
               memory: 512Mi
             limits:
               memory: 4Gi
