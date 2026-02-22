@@ -70,6 +70,17 @@ def test_numbers_currency_and_time_still_normalize():
     assert "fifty percent" in cleaned
 
 
+def test_alphanumeric_tokens_are_split_for_stable_phonemization():
+    preprocessor = TextPreprocessor()
+    text = "gpt4 and ipv6 with R2D2 in v1.2.3"
+    cleaned = preprocessor(text)
+
+    assert "gpt four" in cleaned
+    assert "ipv six" in cleaned
+    assert "r two d two" in cleaned
+    assert "v one point two three" in cleaned
+
+
 def test_chunk_text_by_sentences_respects_chunk_size():
     text = "First sentence. Second sentence. Third sentence."
     chunks = nlp.chunk_text_by_sentences(text, chunk_size=20)

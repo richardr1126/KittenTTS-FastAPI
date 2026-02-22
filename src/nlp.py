@@ -178,6 +178,9 @@ _RE_RANGE    = re.compile(r"(?<!\w)(\d+)-(\d+)(?!\w)")
 # Letter(s) + hyphen + digit(s) [+ more version parts]
 _RE_MODEL_VER = re.compile(r"\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)(?=[^\d.]|$)")
 
+# Letter/number boundaries inside tokens: gpt4 -> gpt 4, ipv6 -> ipv 6
+_RE_ALNUM_BOUNDARY = re.compile(r"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])")
+
 # Measurement units glued to numbers: 100km, 50kg, 25°C, 5GB
 _RE_UNIT     = re.compile(r"(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b",
                           re.IGNORECASE)
@@ -379,6 +382,19 @@ def expand_model_names(text: str) -> str:
         "IPv6"       stays as "IPv6"
     """
     return _RE_MODEL_VER.sub(lambda m: f"{m.group(1)} {m.group(2)}", text)
+
+
+def separate_alphanumeric_tokens(text: str) -> str:
+    """
+    Split tokens where letters and digits touch to preserve word boundaries
+    expected by phonemizers.
+
+    Examples:
+        "gpt4"   -> "gpt 4"
+        "ipv6"   -> "ipv 6"
+        "R2D2"   -> "R 2 D 2"
+    """
+    return _RE_ALNUM_BOUNDARY.sub(" ", text)
 
 
 def expand_units(text: str) -> str:
@@ -853,6 +869,7 @@ class TextPreprocessor:
         expand_time: bool = True,
         expand_ranges: bool = True,
         expand_units: bool = True,
+        separate_alphanumeric_tokens: bool = True,
         expand_scale_suffixes: bool = True,
         expand_scientific_notation: bool = True,
         expand_fractions: bool = True,
@@ -959,6 +976,8 @@ class TextPreprocessor:
             text = expand_ranges(text)
         if cfg["expand_model_names"]:
             text = expand_model_names(text)
+        if cfg["separate_alphanumeric_tokens"]:
+            text = separate_alphanumeric_tokens(text)
         if cfg["expand_roman_numerals"]:
             text = expand_roman_numerals(text)
         if cfg["replace_numbers"]:
