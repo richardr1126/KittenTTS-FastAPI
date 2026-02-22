@@ -22,6 +22,7 @@ Production-ready [FastAPI](https://fastapi.tiangolo.com/) wrapper around [Kitten
 *   **GPU Acceleration**: Uses ONNX Runtime GPU providers when available.
 *   **CPU Friendly**: Lightweight model (~15M params, under 25MB).
 *   **Long-Text Support**: Optional chunking and merged output.
+*   **Robust Text Preprocessing**: Cleans noisy artifacts and normalizes tricky text forms for more stable synthesis.
 *   **Env-Based Config**: Configure runtime with `.env` and `KITTEN_*` vars.
 *   **Browser UI State**: UI preferences are stored in local browser storage.
 *   **Built-in Voices**: 8 voices included (Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo).
@@ -63,6 +64,9 @@ Supported environment variables:
 *   `KITTEN_GEN_DEFAULT_LANGUAGE` (default: `en`)
 *   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`, `aac`)
 *   `KITTEN_AUDIO_SAMPLE_RATE` (default: `24000`)
+*   `KITTEN_FILTER_TABLE_ARTIFACTS` (default: `true`)
+*   `KITTEN_FILTER_REFERENCE_ARTIFACTS` (default: `true`)
+*   `KITTEN_FILTER_SYMBOL_NOISE` (default: `true`)
 *   `KITTEN_UI_TITLE` (default: `Kitten TTS Server`)
 *   `KITTEN_UI_SHOW_LANGUAGE_SELECT` (default: `true`)
 
@@ -156,6 +160,7 @@ Copy `.env.example` to `.env` and edit values as needed, then restart the server
 *   **`KITTEN_AUDIO_FORMAT`**: `wav`, `mp3`, `opus`, or `aac`.
 *   **`KITTEN_MODEL_REPO_ID`**: Hugging Face model repo.
 *   **`KITTEN_MODEL_CACHE`**: Model cache directory path.
+*   **Text preprocessing** is enabled by default and includes cleanup/normalization steps (for example, mixed alphanumeric tokens like `gpt4` are normalized to improve phonemization stability).
 *   **UI state** (last text, voice, theme) is stored in browser `localStorage`, not on the API server.
 
 ---

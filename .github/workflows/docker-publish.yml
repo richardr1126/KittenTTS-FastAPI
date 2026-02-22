@@ -33,7 +33,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -54,7 +54,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
@@ -253,9 +253,51 @@ jobs:
       - name: Create GPU manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(echo "$TAGS" | xargs -I {} echo -t {}) \
-            $(printf '${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-gpu@sha256:%s ' *)
+          decoded_tags="${TAGS//%0A/$'\n'}"
+          decoded_tags="${decoded_tags//%0D/}"
+
+          mapfile -t tags < <(
+            printf '%s\n' "$decoded_tags" \
+              | tr ',' '\n' \
+              | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' \
+              | sed '/^$/d'
+          )
+
+          args=()
+          tag_count=0
+          for tag in "${tags[@]}"; do
+            if [[ "$tag" =~ ^[^[:space:]]+:[^[:space:]]+$ ]]; then
+              args+=("-t" "$tag")
+              tag_count=$((tag_count + 1))
+            else
+              echo "Skipping invalid tag: $tag"
+            fi
+          done
+
+          digest_count=0
+          for digest in *; do
+            [[ -f "$digest" ]] || continue
+            if [[ "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+              args+=("${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-gpu@sha256:${digest}")
+              digest_count=$((digest_count + 1))
+            else
+              echo "Skipping non-digest artifact: $digest"
+            fi
+          done
+
+          if [[ $tag_count -eq 0 || $digest_count -eq 0 ]]; then
+            echo "No valid tags or digests found for GPU manifest creation."
+            echo "Valid tag count: $tag_count"
+            echo "Valid digest count: $digest_count"
+            echo "TAGS value:"
+            printf '%s\n' "$TAGS"
+            echo "Decoded TAGS value:"
+            printf '%s\n' "$decoded_tags"
+            ls -la
+            exit 1
+          fi
+
+          docker buildx imagetools create "${args[@]}"
         env:
           TAGS: ${{ needs.prepare.outputs.tags-gpu }}
 
@@ -299,9 +341,51 @@ jobs:
       - name: Create CPU manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create \
-            $(echo "$TAGS" | xargs -I {} echo -t {}) \
-            $(printf '${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-cpu@sha256:%s ' *)
+          decoded_tags="${TAGS//%0A/$'\n'}"
+          decoded_tags="${decoded_tags//%0D/}"
+
+          mapfile -t tags < <(
+            printf '%s\n' "$decoded_tags" \
+              | tr ',' '\n' \
+              | sed -E 's/^[[:space:]]+|[[:space:]]+$//g' \
+              | sed '/^$/d'
+          )
+
+          args=()
+          tag_count=0
+          for tag in "${tags[@]}"; do
+            if [[ "$tag" =~ ^[^[:space:]]+:[^[:space:]]+$ ]]; then
+              args+=("-t" "$tag")
+              tag_count=$((tag_count + 1))
+            else
+              echo "Skipping invalid tag: $tag"
+            fi
+          done
+
+          digest_count=0
+          for digest in *; do
+            [[ -f "$digest" ]] || continue
+            if [[ "$digest" =~ ^[a-f0-9]{64}$ ]]; then
+              args+=("${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}-cpu@sha256:${digest}")
+              digest_count=$((digest_count + 1))
+            else
+              echo "Skipping non-digest artifact: $digest"
+            fi
+          done
+
+          if [[ $tag_count -eq 0 || $digest_count -eq 0 ]]; then
+            echo "No valid tags or digests found for CPU manifest creation."
+            echo "Valid tag count: $tag_count"
+            echo "Valid digest count: $digest_count"
+            echo "TAGS value:"
+            printf '%s\n' "$TAGS"
+            echo "Decoded TAGS value:"
+            printf '%s\n' "$decoded_tags"
+            ls -la
+            exit 1
+          fi
+
+          docker buildx imagetools create "${args[@]}"
         env:
           TAGS: ${{ needs.prepare.outputs.tags-cpu }}
 
