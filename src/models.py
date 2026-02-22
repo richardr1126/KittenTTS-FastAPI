@@ -30,7 +30,7 @@ class CustomTTSRequest(BaseModel):
         description="Voice identifier (e.g., 'Jasper'). Available voices: Bella, Jasper, Luna, Bruno, Rosie, Hugo, Kiki, Leo",
     )
 
-    output_format: Optional[Literal["wav", "opus", "mp3"]] = Field(
+    output_format: Optional[Literal["wav", "opus", "mp3", "aac"]] = Field(
         "wav", description="Desired audio output format."
     )
 

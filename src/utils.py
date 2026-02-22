@@ -138,13 +138,13 @@ def encode_audio(
     target_sample_rate: Optional[int] = None,
 ) -> Optional[bytes]:
     """
-    Encodes a NumPy audio array into the specified format (Opus or WAV) in memory.
+    Encodes a NumPy audio array into the specified format in memory.
     Can resample the audio to a target sample rate before encoding if specified.
 
     Args:
         audio_array: NumPy array containing audio data (expected as float32, range [-1, 1]).
         sample_rate: Sample rate of the input audio data.
-        output_format: Desired output format ('opus', 'wav' or 'mp3').
+        output_format: Desired output format ('opus', 'wav', 'mp3', or 'aac').
         target_sample_rate: Optional target sample rate to resample to before encoding.
 
     Returns:
@@ -237,6 +237,16 @@ def encode_audio(
                 channels=1,
             )
             audio_segment.export(output_buffer, format="mp3")
+
+        elif output_format == "aac":
+            audio_int16 = _to_pcm16(audio_array)
+            audio_segment = AudioSegment(
+                audio_int16.tobytes(),
+                frame_rate=sample_rate,
+                sample_width=2,
+                channels=1,
+            )
+            audio_segment.export(output_buffer, format="adts", codec="aac")
 
         else:
             logger.error(

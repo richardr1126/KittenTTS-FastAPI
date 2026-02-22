@@ -56,7 +56,7 @@ class OpenAISpeechRequest(BaseModel):
     model: str
     input_: str = Field(..., alias="input")
     voice: str
-    response_format: Literal["wav", "opus", "mp3"] = "wav"  # Add "mp3"
+    response_format: Literal["wav", "opus", "mp3", "aac"] = "wav"
     speed: float = 1.0
     seed: Optional[int] = None
 
@@ -345,6 +345,12 @@ def _generate_audio_bytes(
     return encoded_audio_bytes
 
 
+def _media_type_for_format(audio_format: str) -> str:
+    if audio_format == "aac":
+        return "audio/aac"
+    return f"audio/{audio_format}"
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manages application startup and shutdown events."""
@@ -526,7 +532,12 @@ async def restart_server_endpoint():
     summary="Generate speech with custom parameters",
     responses={
         200: {
-            "content": {"audio/wav": {}, "audio/opus": {}},
+            "content": {
+                "audio/wav": {},
+                "audio/opus": {},
+                "audio/mp3": {},
+                "audio/aac": {},
+            },
             "description": "Successful audio generation.",
         },
         400: {
@@ -594,7 +605,7 @@ async def custom_tts_endpoint(
         perf_monitor=perf_monitor,
     )
 
-    media_type = f"audio/{output_format_str}"
+    media_type = _media_type_for_format(output_format_str)
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
     suggested_filename_base = f"tts_output_{timestamp_str}"
     download_filename = utils.sanitize_filename(
@@ -653,7 +664,7 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
             context_label="/v1/audio/speech",
             perf_monitor=perf_monitor,
         )
-        media_type = f"audio/{request.response_format}"
+        media_type = _media_type_for_format(request.response_format)
         logger.info(
             "Successfully generated OpenAI-compatible audio: %d bytes, type %s.",
             len(encoded_audio),

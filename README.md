@@ -61,7 +61,7 @@ Supported environment variables:
 *   `KITTEN_MODEL_CACHE` (default: `model_cache`)
 *   `KITTEN_GEN_DEFAULT_SPEED` (default: `1.1`)
 *   `KITTEN_GEN_DEFAULT_LANGUAGE` (default: `en`)
-*   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`)
+*   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`, `aac`)
 *   `KITTEN_AUDIO_SAMPLE_RATE` (default: `24000`)
 *   `KITTEN_UI_TITLE` (default: `Kitten TTS Server`)
 *   `KITTEN_UI_SHOW_LANGUAGE_SELECT` (default: `true`)
@@ -153,7 +153,7 @@ Server settings are loaded from environment variables (`.env` for local/dev).
 Copy `.env.example` to `.env` and edit values as needed, then restart the server.
 
 *   **`KITTEN_TTS_DEVICE`**: `auto`, `cuda`, or `cpu`.
-*   **`KITTEN_AUDIO_FORMAT`**: `wav`, `mp3`, or `opus`.
+*   **`KITTEN_AUDIO_FORMAT`**: `wav`, `mp3`, `opus`, or `aac`.
 *   **`KITTEN_MODEL_REPO_ID`**: Hugging Face model repo.
 *   **`KITTEN_MODEL_CACHE`**: Model cache directory path.
 *   **UI state** (last text, voice, theme) is stored in browser `localStorage`, not on the API server.

@@ -248,7 +248,8 @@ def test_openai_route_returns_400_for_unspeakable_cleaned_text(api_client: TestC
         "to run real audio generation integration tests."
     ),
 )
-def test_real_audio_generation_via_tts_route(integration_client: TestClient):
+@pytest.mark.parametrize("output_format", ["wav", "mp3", "opus", "aac"])
+def test_real_audio_generation_via_tts_route(integration_client: TestClient, output_format: str):
     payload = {
         "text": (
             "This is a real synthesis test. "
@@ -256,7 +257,7 @@ def test_real_audio_generation_via_tts_route(integration_client: TestClient):
             "The sentence after the table should still be speakable."
         ),
         "voice": "Bella",
-        "output_format": "wav",
+        "output_format": output_format,
         "speed": 1.0,
         "split_text": True,
         "chunk_size": 120,
@@ -264,9 +265,16 @@ def test_real_audio_generation_via_tts_route(integration_client: TestClient):
 
     response = integration_client.post("/tts", json=payload)
 
+    expected_media_type = "audio/aac" if output_format == "aac" else f"audio/{output_format}"
     assert response.status_code == 200, response.text
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert response.content[:4] == b"RIFF"
+    assert response.headers["content-type"].startswith(expected_media_type)
+    if output_format == "wav":
+        assert response.content[:4] == b"RIFF"
+    if output_format == "opus":
+        assert response.content[:4] == b"OggS"
+    if output_format == "aac":
+        assert response.content[0] == 0xFF
+        assert (response.content[1] & 0xF0) == 0xF0
     assert len(response.content) > 100
 
 
@@ -278,7 +286,10 @@ def test_real_audio_generation_via_tts_route(integration_client: TestClient):
         "to run real audio generation integration tests."
     ),
 )
-def test_real_audio_generation_via_openai_route(integration_client: TestClient):
+@pytest.mark.parametrize("response_format", ["wav", "mp3", "opus", "aac"])
+def test_real_audio_generation_via_openai_route(
+    integration_client: TestClient, response_format: str
+):
     payload = {
         "model": "tts-1",
         "input": (
@@ -287,13 +298,22 @@ def test_real_audio_generation_via_openai_route(integration_client: TestClient):
             "The sentence after the table should still be speakable."
         ),
         "voice": "Bella",
-        "response_format": "wav",
+        "response_format": response_format,
         "speed": 1.0,
     }
 
     response = integration_client.post("/v1/audio/speech", json=payload)
 
+    expected_media_type = (
+        "audio/aac" if response_format == "aac" else f"audio/{response_format}"
+    )
     assert response.status_code == 200, response.text
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert response.content[:4] == b"RIFF"
+    assert response.headers["content-type"].startswith(expected_media_type)
+    if response_format == "wav":
+        assert response.content[:4] == b"RIFF"
+    if response_format == "opus":
+        assert response.content[:4] == b"OggS"
+    if response_format == "aac":
+        assert response.content[0] == 0xFF
+        assert (response.content[1] & 0xF0) == 0xF0
     assert len(response.content) > 100
