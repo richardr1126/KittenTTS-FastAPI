@@ -67,6 +67,13 @@ _OPENAI_ROUTE_DEFAULT_SPLIT_TEXT = bool(
 _OPENAI_ROUTE_DEFAULT_CHUNK_SIZE = int(
     CustomTTSRequest.model_fields["chunk_size"].default
 )
+_OPENAI_MODEL_CONFIG = {
+    "id": "tts-1",
+    "aliases": {"tts-1", "kittentts", "kitten-tts"},
+    "object": "model",
+    "created": 1735689600,  # 2025-01-01T00:00:00Z
+    "owned_by": "kittentts-fastapi",
+}
 
 
 logging.basicConfig(
@@ -351,6 +358,29 @@ def _media_type_for_format(audio_format: str) -> str:
     return f"audio/{audio_format}"
 
 
+def _openai_model_card() -> dict:
+    return {
+        "id": _OPENAI_MODEL_CONFIG["id"],
+        "object": _OPENAI_MODEL_CONFIG["object"],
+        "created": _OPENAI_MODEL_CONFIG["created"],
+        "owned_by": _OPENAI_MODEL_CONFIG["owned_by"],
+    }
+
+
+def _resolve_openai_speech_model_id(requested_model: str) -> str:
+    normalized_key = requested_model.strip().lower()
+    if normalized_key in _OPENAI_MODEL_CONFIG["aliases"]:
+        return str(_OPENAI_MODEL_CONFIG["id"])
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Unsupported model '{requested_model}'. "
+            f"Use '{_OPENAI_MODEL_CONFIG['id']}' (aliases: KittenTTS, kitten-tts)."
+        ),
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manages application startup and shutdown events."""
@@ -625,6 +655,13 @@ async def custom_tts_endpoint(
 
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
 async def openai_speech_endpoint(request: OpenAISpeechRequest):
+    """
+    OpenAI-compatible TTS endpoint.
+
+    Canonical model id is `tts-1`; aliases `KittenTTS` and `kitten-tts` are accepted.
+    """
+    resolved_model_id = _resolve_openai_speech_model_id(request.model)
+
     perf_monitor = utils.PerformanceMonitor(
         enabled=config_manager.get_bool("server.enable_performance_monitor", False)
     )
@@ -639,7 +676,9 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
         )
 
     logger.info(
-        "Received /v1/audio/speech request: voice='%s', format='%s'",
+        "Received /v1/audio/speech request: model='%s' (resolved='%s'), voice='%s', format='%s'",
+        request.model,
+        resolved_model_id,
         request.voice,
         request.response_format,
     )
@@ -678,6 +717,25 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
     except Exception as e:
         logger.error(f"Error in openai_speech_endpoint: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/models", tags=["OpenAI Compatible"])
+async def openai_models_endpoint():
+    """
+    Returns models in OpenAI list format.
+    """
+    return {"object": "list", "data": [_openai_model_card()]}
+
+
+@app.get("/v1/models/{model_id}", tags=["OpenAI Compatible"])
+async def openai_model_retrieve_endpoint(model_id: str):
+    """
+    Returns a single model card in OpenAI format.
+    """
+    if model_id == _OPENAI_MODEL_CONFIG["id"]:
+        return _openai_model_card()
+
+    raise HTTPException(status_code=404, detail=f"Model '{model_id}' not found.")
 
 
 @app.get("/v1/audio/voices", tags=["OpenAI Compatible"])

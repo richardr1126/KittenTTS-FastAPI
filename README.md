@@ -18,7 +18,7 @@ This project provides a robust, production-ready interface for the ultra-lightwe
 Production-ready [FastAPI](https://fastapi.tiangolo.com/) wrapper around [KittenTTS](https://github.com/KittenML/KittenTTS), focused on fast local/self-hosted deployment.
 
 *   **Modern Web UI**: Text input, voice controls, playback, and download.
-*   **OpenAI-Compatible API**: Includes `/v1/audio/speech` and `/v1/audio/voices`.
+*   **OpenAI-Compatible API**: Includes `/v1/models`, `/v1/audio/speech`, and `/v1/audio/voices`.
 *   **GPU Acceleration**: Uses ONNX Runtime GPU providers when available.
 *   **CPU Friendly**: Lightweight model (~15M params, under 25MB).
 *   **Long-Text Support**: Optional chunking and merged output.
@@ -127,13 +127,19 @@ docker compose -f docker-compose-gpu.yml up -d --build
 curl http://localhost:8005/v1/audio/speech \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kitten-tts",
+    "model": "tts-1",
     "input": "Hello from the Kitten TTS FastAPI server!",
     "voice": "Jasper",
     "speed": 1.1,
     "response_format": "mp3"
   }' \
   --output speech.mp3
+```
+`model` accepts canonical `tts-1` and also supports aliases `KittenTTS` and `kitten-tts`.
+
+### Model List Endpoint (`/v1/models`)
+```bash
+curl http://localhost:8005/v1/models
 ```
 
 ### Voice List Endpoint (`/v1/audio/voices`)
