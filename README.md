@@ -60,6 +60,7 @@ Supported environment variables:
 *   `KITTEN_AUDIO_FORMAT` (default: `wav`, options: `wav`, `mp3`, `opus`, `aac`)
 *   `KITTEN_AUDIO_SAMPLE_RATE` (default: `24000`)
 *   `KITTEN_TEXT_PROFILE` (default: `balanced`, options: `balanced`, `narration`, `dialogue`)
+*   `KITTEN_TEXT_PROFILES_JSON` (optional JSON object to override/extend profile defaults)
 *   `KITTEN_UI_TITLE` (default: `Kitten TTS Server`)
 *   `KITTEN_UI_SHOW_LANGUAGE_SELECT` (default: `true`)
 
@@ -181,6 +182,7 @@ Copy `.env.example` to `.env` and edit values as needed, then restart the server
 *   **`KITTEN_MODEL_REPO_ID`**: Hugging Face model repo.
 *   **`KITTEN_MODEL_CACHE`**: Model cache directory path.
 *   **`KITTEN_TEXT_PROFILE`**: Active text profile (`balanced`, `narration`, `dialogue`).
+*   **`KITTEN_TEXT_PROFILES_JSON`**: Optional JSON object merged onto default `text_processing.profiles` at startup (example: `{"balanced":{"pause_strength":"strong"},"dialogue":{"dialogue_turn_splitting":true}}`).
 *   **Profile defaults**: Full preprocessing defaults (cleanup + normalization pipeline flags) are defined in `text_processing.profiles` in `src/config.py`.
 *   **Override model**: Selected profile provides the baseline. `/tts` can override only this focused subset via `text_options`: `remove_punctuation`, `normalize_pause_punctuation`, `pause_strength`, `dialogue_turn_splitting`, `speaker_label_mode`, `max_punct_run`.
 *   **Text preprocessing** is enabled by default and includes cleanup/normalization steps (for example, mixed alphanumeric tokens like `gpt4` are normalized to improve phonemization stability).

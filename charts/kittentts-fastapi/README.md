@@ -53,8 +53,11 @@ Commonly used keys:
 - `KITTEN_MODEL_CACHE`
 - `KITTEN_AUDIO_FORMAT`
 - `KITTEN_TEXT_PROFILE` (`balanced`, `narration`, `dialogue`)
+- `KITTEN_TEXT_PROFILES_JSON` (optional JSON overrides merged into default profiles)
 - `KITTEN_UI_TITLE`
 - `KITTEN_UI_SHOW_LANGUAGE_SELECT`
 
 Text preprocessing behavior is profile-driven. Select the active profile with
 `KITTEN_TEXT_PROFILE`.
+When setting `KITTEN_TEXT_PROFILES_JSON` via Helm CLI, use `--set-literal` to
+avoid JSON parsing issues in `--set`/`--set-string`.

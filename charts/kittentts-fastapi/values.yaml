@@ -23,6 +23,7 @@ app-template:
             # KITTEN_MODEL_CACHE: /app/model_cache
             # KITTEN_AUDIO_FORMAT: wav # wav, mp3, opus, aac
             # KITTEN_TEXT_PROFILE: balanced # balanced, narration, dialogue
+            # KITTEN_TEXT_PROFILES_JSON: '{"balanced":{"pause_strength":"strong"}}'
             # KITTEN_UI_TITLE: Kitten TTS Server
             # KITTEN_UI_SHOW_LANGUAGE_SELECT: "true"
             # HF_HUB_ENABLE_HF_TRANSFER: "1"

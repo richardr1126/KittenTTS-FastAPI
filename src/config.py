@@ -124,6 +124,7 @@ ENV_KEY_MAP: Dict[str, str] = {
     "audio_output.format": "KITTEN_AUDIO_FORMAT",
     "audio_output.sample_rate": "KITTEN_AUDIO_SAMPLE_RATE",
     "text_processing.active_profile": "KITTEN_TEXT_PROFILE",
+    "text_processing.profiles": "KITTEN_TEXT_PROFILES_JSON",
     "ui.title": "KITTEN_UI_TITLE",
     "ui.show_language_select": "KITTEN_UI_SHOW_LANGUAGE_SELECT",
 }
@@ -302,6 +303,31 @@ class EnvConfigManager:
 
             default_value = _get_nested_value(DEFAULT_CONFIG, key_path.split("."))
             coerced_value = self._coerce_env_value(raw_value, default_value)
+
+            # Merge profile JSON overrides onto default profiles so callers can
+            # patch specific profile keys without redefining the full object.
+            if key_path == "text_processing.profiles" and isinstance(coerced_value, dict):
+                existing_profiles = _get_nested_value(
+                    base_config, ["text_processing", "profiles"], {}
+                )
+                merged_profiles = (
+                    deepcopy(existing_profiles) if isinstance(existing_profiles, dict) else {}
+                )
+                for profile_name, profile_overrides in coerced_value.items():
+                    if (
+                        isinstance(profile_name, str)
+                        and isinstance(profile_overrides, dict)
+                        and isinstance(merged_profiles.get(profile_name), dict)
+                    ):
+                        merged_profiles[profile_name] = {
+                            **merged_profiles[profile_name],
+                            **profile_overrides,
+                        }
+                    elif isinstance(profile_name, str):
+                        merged_profiles[profile_name] = profile_overrides
+                _set_nested_value(base_config, key_path.split("."), merged_profiles)
+                continue
+
             _set_nested_value(base_config, key_path.split("."), coerced_value)
 
         return self._resolve_paths_and_device(base_config)
