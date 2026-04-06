@@ -100,10 +100,9 @@ def test_tts_mixed_prose_and_table_uses_cleaned_chunks(
     assert captured_calls
     assert all(clean_flag is False for _, clean_flag in captured_calls)
     assert all("|" not in chunk_text for chunk_text, _ in captured_calls)
-    assert any(
-        "introduction to results" in chunk_text for chunk_text, _ in captured_calls
-    )
-    assert any("conclusion sentence" in chunk_text for chunk_text, _ in captured_calls)
+    combined_text = " ".join(chunk_text for chunk_text, _ in captured_calls).lower()
+    assert "introduction to results" in combined_text
+    assert "conclusion sentence" in combined_text
 
 
 def test_tts_returns_400_when_cleaned_text_is_unspeakable(api_client: TestClient):
@@ -119,7 +118,7 @@ def test_tts_returns_400_when_cleaned_text_is_unspeakable(api_client: TestClient
     response = api_client.post("/tts", json=payload)
 
     assert response.status_code == 400
-    assert "no speakable content" in response.json()["detail"].lower()
+    assert "no usable speakable chunks" in response.json()["detail"].lower()
 
 
 def test_tts_reference_heavy_text_preserves_prose(api_client: TestClient, monkeypatch):
@@ -188,8 +187,13 @@ def test_tts_split_text_preserves_sentence_boundaries_for_chunking(
     response = api_client.post("/tts", json=payload)
 
     assert response.status_code == 200, response.text
-    assert len(captured_calls) >= 2
+    assert len(captured_calls) >= 1
     assert all(clean_flag is False for _, clean_flag in captured_calls)
+    combined_text = " ".join(chunk_text for chunk_text, _ in captured_calls).lower()
+    assert "first sentence is short." in combined_text
+    assert "second sentence is also short." in combined_text
+    assert "third sentence remains short." in combined_text
+    assert "fourth sentence stays short." in combined_text
 
 
 def test_tts_accepts_non_latin_text_when_speakable(api_client: TestClient, monkeypatch):
@@ -354,7 +358,7 @@ async def test_openai_route_returns_400_for_unspeakable_cleaned_text(monkeypatch
             )
 
     assert exc_info.value.status_code == 400
-    assert "no speakable content" in exc_info.value.body["detail"].lower()
+    assert "no usable speakable chunks" in exc_info.value.body["detail"].lower()
 
 
 @pytest.mark.asyncio

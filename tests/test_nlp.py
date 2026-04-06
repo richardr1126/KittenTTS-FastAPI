@@ -52,12 +52,42 @@ def test_symbol_noise_is_collapsed():
     assert metadata["symbol_noise_collapsed"] >= 1
 
 
+def test_markdown_and_non_speakable_symbols_are_normalized():
+    preprocessor = TextPreprocessor()
+    text = "## Heading\nVisit [Docs](https://example.com) and smile 😀"
+
+    cleaned, metadata = preprocessor.process_with_metadata(text)
+
+    assert "heading" in cleaned
+    assert "docs" in cleaned
+    assert "https://example.com" not in cleaned
+    assert "😀" not in cleaned
+    assert metadata["markdown_artifacts_normalized"] >= 1
+    assert metadata["non_speakable_symbols_removed"] >= 1
+
+
+def test_arrow_and_affiliation_symbols_are_removed():
+    preprocessor = TextPreprocessor()
+    text = "metric ↑ improves, marker one∗ two† three‡ four•"
+
+    cleaned, metadata = preprocessor.process_with_metadata(text)
+
+    assert "↑" not in cleaned
+    assert "∗" not in cleaned
+    assert "†" not in cleaned
+    assert "‡" not in cleaned
+    assert "•" not in cleaned
+    assert metadata["non_speakable_symbols_removed"] >= 1
+
+
 def test_normal_prose_regression_behavior():
     preprocessor = TextPreprocessor()
     text = "Hello there, this is a normal paragraph about science and progress."
     cleaned = preprocessor(text)
 
-    assert cleaned == "hello there, this is a normal paragraph about science and progress."
+    assert (
+        cleaned == "hello there, this is a normal paragraph about science and progress."
+    )
 
 
 def test_remove_punctuation_can_be_enabled():
@@ -65,7 +95,9 @@ def test_remove_punctuation_can_be_enabled():
     text = "Hello there, this is a normal paragraph about science and progress."
     cleaned = preprocessor(text)
 
-    assert cleaned == "hello there this is a normal paragraph about science and progress"
+    assert (
+        cleaned == "hello there this is a normal paragraph about science and progress"
+    )
 
 
 def test_numbers_currency_and_time_still_normalize():
@@ -76,6 +108,17 @@ def test_numbers_currency_and_time_still_normalize():
     assert "twelve dollars and fifty cents" in cleaned
     assert "three oh five pm" in cleaned
     assert "fifty percent" in cleaned
+
+
+def test_malformed_percent_tokens_do_not_crash_preprocessor():
+    preprocessor = TextPreprocessor()
+    text = "Progress markers: ,% and -% should be ignored, while 25% should normalize."
+
+    cleaned = preprocessor(text)
+
+    assert "twenty-five percent" in cleaned
+    assert ",%" in cleaned
+    assert "-%" in cleaned
 
 
 def test_alphanumeric_tokens_are_split_for_stable_phonemization():
@@ -96,6 +139,25 @@ def test_chunk_text_by_sentences_respects_chunk_size():
     assert chunks
     assert all(chunk.strip() for chunk in chunks)
     assert len(chunks) >= 2
+
+
+def test_chunk_text_by_tokens_respects_hard_cap():
+    text = (
+        "One short sentence. "
+        "This sentence is intentionally much longer, with commas, clauses, and additional detail, "
+        "so token-aware chunking can split it safely without exceeding limits."
+    )
+
+    chunks, _ = nlp.chunk_text_by_tokens_with_metadata(
+        text,
+        target_min_tokens=8,
+        target_max_tokens=16,
+        absolute_max_tokens=18,
+    )
+
+    assert chunks
+    assert all(chunk.strip() for chunk in chunks)
+    assert all(len(nlp.re.findall(r"\w+|[^\w\s]", chunk)) <= 18 for chunk in chunks)
 
 
 def test_chunk_text_by_sentences_handles_empty_input():

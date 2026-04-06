@@ -16,32 +16,80 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────
 
 _ONES = [
-    "", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
-    "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
-    "seventeen", "eighteen", "nineteen",
+    "",
+    "one",
+    "two",
+    "three",
+    "four",
+    "five",
+    "six",
+    "seven",
+    "eight",
+    "nine",
+    "ten",
+    "eleven",
+    "twelve",
+    "thirteen",
+    "fourteen",
+    "fifteen",
+    "sixteen",
+    "seventeen",
+    "eighteen",
+    "nineteen",
 ]
-_TENS = ["", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"]
+_TENS = [
+    "",
+    "",
+    "twenty",
+    "thirty",
+    "forty",
+    "fifty",
+    "sixty",
+    "seventy",
+    "eighty",
+    "ninety",
+]
 _SCALE = ["", "thousand", "million", "billion", "trillion"]
 
 _ORDINAL_EXCEPTIONS = {
-    "one": "first", "two": "second", "three": "third", "four": "fourth",
-    "five": "fifth", "six": "sixth", "seven": "seventh", "eight": "eighth",
-    "nine": "ninth", "twelve": "twelfth",
+    "one": "first",
+    "two": "second",
+    "three": "third",
+    "four": "fourth",
+    "five": "fifth",
+    "six": "sixth",
+    "seven": "seventh",
+    "eight": "eighth",
+    "nine": "ninth",
+    "twelve": "twelfth",
 }
 
 _CURRENCY_SYMBOLS = {
-    "$": "dollar", "€": "euro", "£": "pound", "¥": "yen",
-    "₹": "rupee", "₩": "won", "₿": "bitcoin",
+    "$": "dollar",
+    "€": "euro",
+    "£": "pound",
+    "¥": "yen",
+    "₹": "rupee",
+    "₩": "won",
+    "₿": "bitcoin",
 }
 
 _ROMAN = [
-    (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
-    (100, "C"),  (90, "XC"),  (50, "L"),  (40, "XL"),
-    (10, "X"),   (9, "IX"),   (5, "V"),   (4, "IV"), (1, "I"),
+    (1000, "M"),
+    (900, "CM"),
+    (500, "D"),
+    (400, "CD"),
+    (100, "C"),
+    (90, "XC"),
+    (50, "L"),
+    (40, "XL"),
+    (10, "X"),
+    (9, "IX"),
+    (5, "V"),
+    (4, "IV"),
+    (1, "I"),
 ]
-_RE_ROMAN = re.compile(
-    r"\b(M{0,4})(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})\b"
-)
+_RE_ROMAN = re.compile(r"\b(M{0,4})(CM|CD|D?C{0,3})(XC|XL|L?X{0,3})(IX|IV|V?I{0,3})\b")
 
 
 def _three_digits_to_words(n: int) -> str:
@@ -132,8 +180,7 @@ def float_to_words(value, decimal_sep: str = "point") -> str:
 
 def roman_to_int(s: str) -> int:
     """Convert a Roman numeral string to an integer."""
-    val = {"I": 1, "V": 5, "X": 10, "L": 50,
-           "C": 100, "D": 500, "M": 1000}
+    val = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
     result = 0
     prev = 0
     for ch in reversed(s.upper()):
@@ -147,32 +194,33 @@ def roman_to_int(s: str) -> int:
 # Regex patterns
 # ─────────────────────────────────────────────
 
-_RE_URL      = re.compile(r"https?://\S+|www\.\S+")
-_RE_EMAIL    = re.compile(r"\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b", re.IGNORECASE)
-_RE_HASHTAG  = re.compile(r"#\w+")
-_RE_MENTION  = re.compile(r"@\w+")
-_RE_HTML     = re.compile(r"<[^>]+>")
-_RE_PUNCT    = re.compile(r"[^\w\s]")
-_RE_SPACES   = re.compile(r"\s+")
+_RE_URL = re.compile(r"https?://\S+|www\.\S+")
+_RE_EMAIL = re.compile(r"\b[\w.+-]+@[\w-]+\.[a-z]{2,}\b", re.IGNORECASE)
+_RE_HASHTAG = re.compile(r"#\w+")
+_RE_MENTION = re.compile(r"@\w+")
+_RE_HTML = re.compile(r"<[^>]+>")
+_RE_PUNCT = re.compile(r"[^\w\s]")
+_RE_SPACES = re.compile(r"\s+")
 
 # Number: do NOT match a leading minus if it is immediately preceded by a letter
 # (handles "gpt-3", "gpl-3", "v-2" etc.)
-_RE_NUMBER   = re.compile(r"(?<![a-zA-Z])-?[\d,]+(?:\.\d+)?")
+_RE_NUMBER = re.compile(r"(?<![a-zA-Z])-?[\d,]+(?:\.\d+)?")
 
 # Ordinals: 1st, 2nd, 3rd, 4th … 21st, 101st …
-_RE_ORDINAL  = re.compile(r"\b(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
+_RE_ORDINAL = re.compile(r"\b(\d+)(st|nd|rd|th)\b", re.IGNORECASE)
 
-# Percentages: 50%, 3.5%
-_RE_PERCENT  = re.compile(r"(-?[\d,]+(?:\.\d+)?)\s*%")
+# Percentages: 50%, 3.5%, 1,250%
+# Require at least one digit so malformed tokens like ",%" are ignored.
+_RE_PERCENT = re.compile(r"(-?(?:\d{1,3}(?:,\d{3})*|\d+)(?:\.\d+)?)\s*%")
 
 # Currency: $100, €1,200.50, £50, $85K, $2.5M (optional scale suffix)
 _RE_CURRENCY = re.compile(r"([$€£¥₹₩₿])\s*([\d,]+(?:\.\d+)?)\s*([KMBT])?(?![a-zA-Z\d])")
 
 # Time: 3:30pm, 14:00, 3:30 AM — requires 2-digit minutes so "3:0" (score) doesn't match
-_RE_TIME     = re.compile(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b", re.IGNORECASE)
+_RE_TIME = re.compile(r"\b(\d{1,2}):(\d{2})(?::(\d{2}))?\s*(am|pm)?\b", re.IGNORECASE)
 
 # Ranges: 10-20, 100-200 (both sides numeric, hyphen between them)
-_RE_RANGE    = re.compile(r"(?<!\w)(\d+)-(\d+)(?!\w)")
+_RE_RANGE = re.compile(r"(?<!\w)(\d+)-(\d+)(?!\w)")
 
 # Version/model names: gpt-3, gpt-3.5, v2.0, Python-3.10, GPL-3
 # Letter(s) + hyphen + digit(s) [+ more version parts]
@@ -182,21 +230,23 @@ _RE_MODEL_VER = re.compile(r"\b([a-zA-Z][a-zA-Z0-9]*)-(\d[\d.]*)(?=[^\d.]|$)")
 _RE_ALNUM_BOUNDARY = re.compile(r"(?<=[a-zA-Z])(?=\d)|(?<=\d)(?=[a-zA-Z])")
 
 # Measurement units glued to numbers: 100km, 50kg, 25°C, 5GB
-_RE_UNIT     = re.compile(r"(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b",
-                          re.IGNORECASE)
+_RE_UNIT = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(km|kg|mg|ml|gb|mb|kb|tb|hz|khz|mhz|ghz|mph|kph|°[cCfF]|[cCfF]°|ms|ns|µs)\b",
+    re.IGNORECASE,
+)
 
 # Scale suffixes (uppercase only to avoid ambiguity): 7B, 340M, 1.5K, 2T
 # Must NOT be preceded by a letter (so 'MB' is handled by unit regex first)
-_RE_SCALE    = re.compile(r"(?<![a-zA-Z])(\d+(?:\.\d+)?)\s*([KMBT])(?![a-zA-Z\d])")
+_RE_SCALE = re.compile(r"(?<![a-zA-Z])(\d+(?:\.\d+)?)\s*([KMBT])(?![a-zA-Z\d])")
 
 # Scientific notation: 1e-4, 2.5e10, 6.022E23
-_RE_SCI      = re.compile(r"(?<![a-zA-Z\d])(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)(?![a-zA-Z\d])")
+_RE_SCI = re.compile(r"(?<![a-zA-Z\d])(-?\d+(?:\.\d+)?)[eE]([+-]?\d+)(?![a-zA-Z\d])")
 
 # Fractions: 1/2, 3/4, 2/3
 _RE_FRACTION = re.compile(r"\b(\d+)\s*/\s*(\d+)\b")
 
 # Decades: 80s, 90s, 1980s, 2020s (number ending in 0 followed by 's')
-_RE_DECADE   = re.compile(r"\b(\d{1,3})0s\b")
+_RE_DECADE = re.compile(r"\b(\d{1,3})0s\b")
 
 # Leading decimal (no digit before the dot): .5, .75
 _RE_LEAD_DEC = re.compile(r"(?<!\d)\.([\d])")
@@ -219,6 +269,31 @@ _RE_CAPTION_PREFIX = re.compile(
 _RE_SYMBOL_RUN = re.compile(r"[_|~=]{3,}")
 _RE_SEPARATOR_RUN = re.compile(r"(?<!\d)-{3,}(?!\d)")
 _RE_PUNCT_CLUSTER = re.compile(r"[^\w\s]{4,}")
+_RE_MARKDOWN_CODE_FENCE = re.compile(r"```.*?```", re.DOTALL)
+_RE_MARKDOWN_INLINE_CODE = re.compile(r"`([^`]+)`")
+_RE_MARKDOWN_LINK = re.compile(r"\[([^\]]+)\]\(([^)]+)\)")
+_RE_MARKDOWN_IMAGE = re.compile(r"!\[([^\]]*)\]\(([^)]+)\)")
+_RE_MARKDOWN_HEADING = re.compile(r"^\s{0,3}#{1,6}\s+", re.MULTILINE)
+_RE_MARKDOWN_BLOCKQUOTE = re.compile(r"^\s*>+\s?", re.MULTILINE)
+_RE_MARKDOWN_LIST_MARKER = re.compile(r"^\s*(?:[-*+]\s+|\d+\.\s+)", re.MULTILINE)
+_RE_MARKDOWN_EMPHASIS = re.compile(r"[*_]{1,3}([^*_]+)[*_]{1,3}")
+_RE_NON_SPEAKABLE_SYMBOLS = re.compile(
+    r"["
+    r"\U0001F300-\U0001F5FF"
+    r"\U0001F600-\U0001F64F"
+    r"\U0001F680-\U0001F6FF"
+    r"\U0001F700-\U0001F77F"
+    r"\U0001F780-\U0001F7FF"
+    r"\U0001F800-\U0001F8FF"
+    r"\U0001F900-\U0001F9FF"
+    r"\U0001FA00-\U0001FAFF"
+    r"\U00002700-\U000027BF"
+    r"\U0000FE00-\U0000FE0F"
+    r"\u2190-\u21FF"
+    r"∗†‡•"
+    r"\u200d"
+    r"]+"
+)
 _RE_ELLIPSIS = re.compile(r"(?:\.{3,}|…)")
 _RE_REPEAT_PAUSE_PUNCT = re.compile(r"([,;:!?\.])\1+")
 _RE_BRACKET_CHARS = re.compile(r"[()\[\]{}<>]")
@@ -227,6 +302,7 @@ _RE_BRACKET_CHARS = re.compile(r"[()\[\]{}<>]")
 # ─────────────────────────────────────────────
 # Expansion helpers
 # ─────────────────────────────────────────────
+
 
 def _ordinal_suffix(n: int) -> str:
     """Return the ordinal word for n (e.g. 1 → 'first', 5 → 'fifth', 21 → 'twenty-first')."""
@@ -237,7 +313,9 @@ def _ordinal_suffix(n: int) -> str:
         joiner = "-"
     else:
         parts = word.rsplit(" ", 1)
-        prefix, last, joiner = (parts[0], parts[1], " ") if len(parts) == 2 else ("", parts[0], "")
+        prefix, last, joiner = (
+            (parts[0], parts[1], " ") if len(parts) == 2 else ("", parts[0], "")
+        )
 
     # Check exception table
     for base, ordinal in _ORDINAL_EXCEPTIONS.items():
@@ -267,8 +345,10 @@ def expand_ordinals(text: str) -> str:
         "21st century" → "twenty-first century"
         "100th day"  → "one hundredth day"
     """
+
     def _replace(m: re.Match) -> str:
         return _ordinal_suffix(int(m.group(1)))
+
     return _RE_ORDINAL.sub(_replace, text)
 
 
@@ -281,11 +361,15 @@ def expand_percentages(text: str) -> str:
         "3.5% rate"  → "three point five percent rate"
         "-2% change" → "negative two percent change"
     """
+
     def _replace(m: re.Match) -> str:
         raw = m.group(1).replace(",", "")
+        if not raw or raw in {"-", ".", "-."}:
+            return m.group(0)
         if "." in raw:
             return float_to_words(float(raw)) + " percent"
         return number_to_words(int(raw)) + " percent"
+
     return _RE_PERCENT.sub(_replace, text)
 
 
@@ -305,7 +389,7 @@ def expand_currency(text: str) -> str:
     def _replace(m: re.Match) -> str:
         symbol = m.group(1)
         raw = m.group(2).replace(",", "")
-        scale_suffix = m.group(3)          # e.g. "K", "M", or None
+        scale_suffix = m.group(3)  # e.g. "K", "M", or None
         unit = _CURRENCY_SYMBOLS.get(symbol, "")
 
         if scale_suffix:
@@ -325,7 +409,9 @@ def expand_currency(text: str) -> str:
         else:
             val = int(raw)
             words = number_to_words(val)
-            result = f"{words} {unit}{'s' if val != 1 and unit else ''}" if unit else words
+            result = (
+                f"{words} {unit}{'s' if val != 1 and unit else ''}" if unit else words
+            )
         return result
 
     return _RE_CURRENCY.sub(_replace, text)
@@ -341,17 +427,21 @@ def expand_time(text: str) -> str:
         "9:05 AM" → "nine oh five am"
         "12:00pm" → "twelve pm"
     """
+
     def _replace(m: re.Match) -> str:
         h = int(m.group(1))
         mins = int(m.group(2))
         suffix = (" " + m.group(4).lower()) if m.group(4) else ""
         h_words = number_to_words(h)
         if mins == 0:
-            return f"{h_words} hundred{suffix}" if not m.group(4) else f"{h_words}{suffix}"
+            return (
+                f"{h_words} hundred{suffix}" if not m.group(4) else f"{h_words}{suffix}"
+            )
         elif mins < 10:
             return f"{h_words} oh {number_to_words(mins)}{suffix}"
         else:
             return f"{h_words} {number_to_words(mins)}{suffix}"
+
     return _RE_TIME.sub(_replace, text)
 
 
@@ -364,10 +454,12 @@ def expand_ranges(text: str) -> str:
         "pages 100-200" → "pages one hundred to two hundred"
         "2020-2024"     → "twenty twenty to twenty twenty-four"
     """
+
     def _replace(m: re.Match) -> str:
         lo = number_to_words(int(m.group(1)))
         hi = number_to_words(int(m.group(2)))
         return f"{lo} to {hi}"
+
     return _RE_RANGE.sub(_replace, text)
 
 
@@ -411,21 +503,36 @@ def expand_units(text: str) -> str:
         "5GB"    → "five gigabytes"
     """
     _unit_map = {
-        "km": "kilometers", "kg": "kilograms", "mg": "milligrams",
-        "ml": "milliliters", "gb": "gigabytes", "mb": "megabytes",
-        "kb": "kilobytes", "tb": "terabytes",
-        "hz": "hertz", "khz": "kilohertz", "mhz": "megahertz", "ghz": "gigahertz",
-        "mph": "miles per hour", "kph": "kilometers per hour",
-        "ms": "milliseconds", "ns": "nanoseconds", "µs": "microseconds",
-        "°c": "degrees Celsius", "c°": "degrees Celsius",
-        "°f": "degrees Fahrenheit", "f°": "degrees Fahrenheit",
+        "km": "kilometers",
+        "kg": "kilograms",
+        "mg": "milligrams",
+        "ml": "milliliters",
+        "gb": "gigabytes",
+        "mb": "megabytes",
+        "kb": "kilobytes",
+        "tb": "terabytes",
+        "hz": "hertz",
+        "khz": "kilohertz",
+        "mhz": "megahertz",
+        "ghz": "gigahertz",
+        "mph": "miles per hour",
+        "kph": "kilometers per hour",
+        "ms": "milliseconds",
+        "ns": "nanoseconds",
+        "µs": "microseconds",
+        "°c": "degrees Celsius",
+        "c°": "degrees Celsius",
+        "°f": "degrees Fahrenheit",
+        "f°": "degrees Fahrenheit",
     }
+
     def _replace(m: re.Match) -> str:
         raw = m.group(1)
         unit = m.group(2).lower()
         expanded = _unit_map.get(unit, m.group(2))
         num = float_to_words(float(raw)) if "." in raw else number_to_words(int(raw))
         return f"{num} {expanded}"
+
     return _RE_UNIT.sub(_replace, text)
 
 
@@ -455,7 +562,7 @@ def expand_roman_numerals(text: str, context_words: bool = True) -> str:
         if len(roman) == 1 and roman in "IVX":
             # Only expand if preceded by a title word
             start = m.start()
-            preceding = text[max(0, start - 30): start]
+            preceding = text[max(0, start - 30) : start]
             if not _TITLE_WORDS.search(preceding):
                 return roman
         try:
@@ -491,13 +598,19 @@ def expand_scientific_notation(text: str) -> str:
         "2.5e10"  → "two point five times ten to the ten"
         "6.022E23"→ "six point zero two two times ten to the twenty three"
     """
+
     def _replace(m: re.Match) -> str:
         coeff_raw = m.group(1)
         exp = int(m.group(2))
-        coeff_words = float_to_words(coeff_raw) if "." in coeff_raw else number_to_words(int(coeff_raw))
+        coeff_words = (
+            float_to_words(coeff_raw)
+            if "." in coeff_raw
+            else number_to_words(int(coeff_raw))
+        )
         exp_words = number_to_words(abs(exp))
         sign = "negative " if exp < 0 else ""
         return f"{coeff_words} times ten to the {sign}{exp_words}"
+
     return _RE_SCI.sub(_replace, text)
 
 
@@ -533,6 +646,7 @@ def expand_fractions(text: str) -> str:
         "2/3 done" → "two thirds done"
         "5/8 inch" → "five eighths inch"
     """
+
     def _replace(m: re.Match) -> str:
         num = int(m.group(1))
         den = int(m.group(2))
@@ -563,17 +677,25 @@ def expand_decades(text: str) -> str:
         "'90s music" → "nineties music"
     """
     _decade_map = {
-        0: "hundreds", 1: "tens", 2: "twenties", 3: "thirties", 4: "forties",
-        5: "fifties", 6: "sixties", 7: "seventies", 8: "eighties", 9: "nineties",
+        0: "hundreds",
+        1: "tens",
+        2: "twenties",
+        3: "thirties",
+        4: "forties",
+        5: "fifties",
+        6: "sixties",
+        7: "seventies",
+        8: "eighties",
+        9: "nineties",
     }
 
     def _replace(m: re.Match) -> str:
-        base = int(m.group(1))          # e.g. 8 for "80s", 198 for "1980s"
+        base = int(m.group(1))  # e.g. 8 for "80s", 198 for "1980s"
         decade_digit = base % 10
         decade_word = _decade_map.get(decade_digit, "")
         if base < 10:
             return decade_word
-        century_part = base // 10       # e.g. 19 for 198
+        century_part = base // 10  # e.g. 19 for 198
         return f"{number_to_words(century_part)} {decade_word}"
 
     return _RE_DECADE.sub(_replace, text)
@@ -587,8 +709,18 @@ def expand_ip_addresses(text: str) -> str:
         "192.168.1.1"  → "one nine two dot one six eight dot one dot one"
         "10.0.0.1"     → "one zero dot zero dot zero dot one"
     """
-    _d = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
-          "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"}
+    _d = {
+        "0": "zero",
+        "1": "one",
+        "2": "two",
+        "3": "three",
+        "4": "four",
+        "5": "five",
+        "6": "six",
+        "7": "seven",
+        "8": "eight",
+        "9": "nine",
+    }
 
     def _octet(s: str) -> str:
         return " ".join(_d[c] for c in s)
@@ -608,8 +740,18 @@ def expand_phone_numbers(text: str) -> str:
         "555-123-4567"   → "five five five one two three four five six seven"
         "1-800-555-0199" → "one eight zero zero five five five zero one nine nine"
     """
-    _d = {"0": "zero", "1": "one", "2": "two", "3": "three", "4": "four",
-          "5": "five", "6": "six", "7": "seven", "8": "eight", "9": "nine"}
+    _d = {
+        "0": "zero",
+        "1": "one",
+        "2": "two",
+        "3": "three",
+        "4": "four",
+        "5": "five",
+        "6": "six",
+        "7": "seven",
+        "8": "eight",
+        "9": "nine",
+    }
 
     def _digits(s: str) -> str:
         return " ".join(_d[c] for c in s)
@@ -619,20 +761,28 @@ def expand_phone_numbers(text: str) -> str:
 
     # Match longest pattern first to avoid partial matches
     # 11-digit: 1-800-555-0199
-    text = re.sub(r"(?<!\d-)(?<!\d)\b(\d{1,2})-(\d{3})-(\d{3})-(\d{4})\b(?!-\d)",
-                  lambda m: _join(*m.groups()), text)
+    text = re.sub(
+        r"(?<!\d-)(?<!\d)\b(\d{1,2})-(\d{3})-(\d{3})-(\d{4})\b(?!-\d)",
+        lambda m: _join(*m.groups()),
+        text,
+    )
     # 10-digit: 555-123-4567
-    text = re.sub(r"(?<!\d-)(?<!\d)\b(\d{3})-(\d{3})-(\d{4})\b(?!-\d)",
-                  lambda m: _join(*m.groups()), text)
+    text = re.sub(
+        r"(?<!\d-)(?<!\d)\b(\d{3})-(\d{3})-(\d{4})\b(?!-\d)",
+        lambda m: _join(*m.groups()),
+        text,
+    )
     # 7-digit local: 555-1234 (not preceded or followed by digit-hyphen to avoid sub-matching)
-    text = re.sub(r"(?<!\d-)\b(\d{3})-(\d{4})\b(?!-\d)",
-                  lambda m: _join(*m.groups()), text)
+    text = re.sub(
+        r"(?<!\d-)\b(\d{3})-(\d{4})\b(?!-\d)", lambda m: _join(*m.groups()), text
+    )
     return text
 
 
 # ─────────────────────────────────────────────
 # Core preprocessing functions
 # ─────────────────────────────────────────────
+
 
 def replace_numbers(text: str, replace_floats: bool = True) -> str:
     """
@@ -643,6 +793,7 @@ def replace_numbers(text: str, replace_floats: bool = True) -> str:
         "Pi is 3.14"              → "Pi is three point one four"
         "gpt-3 rocks"             → "gpt-3 rocks"  (hyphen not treated as minus)
     """
+
     def _replace(m: re.Match) -> str:
         raw = m.group().replace(",", "")
         try:
@@ -653,6 +804,7 @@ def replace_numbers(text: str, replace_floats: bool = True) -> str:
                 return number_to_words(int(float(raw)))
         except (ValueError, OverflowError):
             return m.group()
+
     return _RE_NUMBER.sub(_replace, text)
 
 
@@ -717,18 +869,18 @@ def expand_contractions(text: str) -> str:
         "I've"    → "I have"
     """
     contractions = {
-        r"\bcan't\b":   "cannot",
-        r"\bwon't\b":   "will not",
-        r"\bshan't\b":  "shall not",
-        r"\bain't\b":   "is not",
-        r"\blet's\b":   "let us",
+        r"\bcan't\b": "cannot",
+        r"\bwon't\b": "will not",
+        r"\bshan't\b": "shall not",
+        r"\bain't\b": "is not",
+        r"\blet's\b": "let us",
         r"\b(\w+)n't\b": r"\1 not",
         r"\b(\w+)'re\b": r"\1 are",
         r"\b(\w+)'ve\b": r"\1 have",
         r"\b(\w+)'ll\b": r"\1 will",
-        r"\b(\w+)'d\b":  r"\1 would",
-        r"\b(\w+)'m\b":  r"\1 am",
-        r"\bit's\b":    "it is",
+        r"\b(\w+)'d\b": r"\1 would",
+        r"\b(\w+)'m\b": r"\1 am",
+        r"\bit's\b": "it is",
     }
     for pattern, replacement in contractions.items():
         text = re.sub(pattern, replacement, text, flags=re.IGNORECASE)
@@ -744,12 +896,60 @@ def remove_stopwords(text: str, stopwords: Optional[set] = None) -> str:
     """
     if stopwords is None:
         stopwords = {
-            "a", "an", "the", "and", "or", "but", "in", "on", "at", "to",
-            "for", "of", "with", "by", "from", "is", "was", "are", "were",
-            "be", "been", "being", "have", "has", "had", "do", "does", "did",
-            "will", "would", "could", "should", "may", "might", "this", "that",
-            "these", "those", "it", "its", "i", "me", "my", "we", "our",
-            "you", "your", "he", "she", "him", "her", "they", "them", "their",
+            "a",
+            "an",
+            "the",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "from",
+            "is",
+            "was",
+            "are",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "this",
+            "that",
+            "these",
+            "those",
+            "it",
+            "its",
+            "i",
+            "me",
+            "my",
+            "we",
+            "our",
+            "you",
+            "your",
+            "he",
+            "she",
+            "him",
+            "her",
+            "they",
+            "them",
+            "their",
         }
     tokens = text.split()
     return " ".join(t for t in tokens if t.lower() not in stopwords)
@@ -839,6 +1039,38 @@ def filter_symbol_noise(text: str) -> Tuple[str, int]:
     return text, replacements
 
 
+def normalize_markdown_artifacts(text: str) -> Tuple[str, int]:
+    """Normalize common markdown syntax into plain speakable text."""
+    replacements = 0
+
+    text, count = _RE_MARKDOWN_CODE_FENCE.subn(" ", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_IMAGE.subn(lambda m: f" {m.group(1).strip()} ", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_LINK.subn(lambda m: f" {m.group(1).strip()} ", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_INLINE_CODE.subn(
+        lambda m: f" {m.group(1).strip()} ", text
+    )
+    replacements += count
+    text, count = _RE_MARKDOWN_HEADING.subn("", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_BLOCKQUOTE.subn("", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_LIST_MARKER.subn("", text)
+    replacements += count
+    text, count = _RE_MARKDOWN_EMPHASIS.subn(lambda m: m.group(1), text)
+    replacements += count
+
+    return text, replacements
+
+
+def strip_non_speakable_symbols(text: str) -> Tuple[str, int]:
+    """Remove symbols that destabilize phonemization/TTS tokenization."""
+    text, count = _RE_NON_SPEAKABLE_SYMBOLS.subn(" ", text)
+    return text, count
+
+
 def normalize_pause_punctuation(
     text: str,
     pause_strength: str = "medium",
@@ -893,6 +1125,7 @@ def normalize_pause_punctuation(
 # ─────────────────────────────────────────────
 # Pipeline helper
 # ─────────────────────────────────────────────
+
 
 class TextPreprocessor:
     """
@@ -949,6 +1182,8 @@ class TextPreprocessor:
         normalize_pause_punctuation: bool = True,
         pause_strength: str = "medium",
         max_punct_run: int = 3,
+        normalize_markdown: bool = True,
+        strip_non_speakable_symbols: bool = True,
     ):
         self.config = {k: v for k, v in locals().items() if k != "self"}
         self._stopwords = stopwords
@@ -968,6 +1203,8 @@ class TextPreprocessor:
             "table_lines_removed": 0,
             "reference_fragments_removed": 0,
             "symbol_noise_collapsed": 0,
+            "markdown_artifacts_normalized": 0,
+            "non_speakable_symbols_removed": 0,
             "pause_punctuation_normalized": 0,
         }
 
@@ -988,6 +1225,12 @@ class TextPreprocessor:
         if cfg["filter_symbol_noise"]:
             text, collapsed_symbols = filter_symbol_noise(text)
             metadata["symbol_noise_collapsed"] = collapsed_symbols
+        if cfg["normalize_markdown"]:
+            text, markdown_changes = normalize_markdown_artifacts(text)
+            metadata["markdown_artifacts_normalized"] = markdown_changes
+        if cfg["strip_non_speakable_symbols"]:
+            text, stripped_symbols = strip_non_speakable_symbols(text)
+            metadata["non_speakable_symbols_removed"] = stripped_symbols
         if cfg["normalize_pause_punctuation"]:
             text, normalized_punct = normalize_pause_punctuation(
                 text,
@@ -1155,7 +1398,9 @@ def _split_dialogue_turns(
     if label_mode not in {"drop", "speak"}:
         label_mode = "drop"
 
-    lines = [line for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    lines = [
+        line for line in text.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+    ]
     provisional_matches = [DIALOGUE_TURN_PATTERN.match(line) for line in lines]
     detected_turns = sum(1 for m in provisional_matches if m is not None)
     metadata["dialogue_turns_detected"] = detected_turns
@@ -1379,6 +1624,195 @@ def _segment_text_for_chunking(
     return segmented_with_tags, metadata
 
 
+def _estimate_token_count(text: str) -> int:
+    cleaned = text.strip()
+    if not cleaned:
+        return 0
+    return len(re.findall(r"\w+|[^\w\s]", cleaned))
+
+
+def _hard_wrap_by_token_limit(segment_text: str, absolute_max_tokens: int) -> List[str]:
+    words = segment_text.split()
+    if not words:
+        return []
+
+    wrapped: List[str] = []
+    current_words: List[str] = []
+
+    for word in words:
+        candidate_words = current_words + [word]
+        if _estimate_token_count(" ".join(candidate_words)) <= absolute_max_tokens:
+            current_words = candidate_words
+            continue
+        if current_words:
+            wrapped.append(" ".join(current_words))
+        current_words = [word]
+
+    if current_words:
+        wrapped.append(" ".join(current_words))
+
+    return [chunk for chunk in wrapped if chunk.strip()]
+
+
+def _split_oversized_segment_by_tokens(
+    segment_text: str,
+    *,
+    absolute_max_tokens: int,
+) -> List[str]:
+    segment_text = segment_text.strip()
+    if not segment_text:
+        return []
+    if _estimate_token_count(segment_text) <= absolute_max_tokens:
+        return [segment_text]
+
+    clause_parts = re.split(r"(?<=[,;:])\s+", segment_text)
+    if len(clause_parts) <= 1:
+        return _hard_wrap_by_token_limit(segment_text, absolute_max_tokens)
+
+    chunks: List[str] = []
+    current = ""
+    for clause in clause_parts:
+        clause = clause.strip()
+        if not clause:
+            continue
+        if not current:
+            current = clause
+            continue
+        candidate = f"{current} {clause}"
+        if _estimate_token_count(candidate) <= absolute_max_tokens:
+            current = candidate
+            continue
+        chunks.extend(_hard_wrap_by_token_limit(current, absolute_max_tokens))
+        current = clause
+
+    if current:
+        chunks.extend(_hard_wrap_by_token_limit(current, absolute_max_tokens))
+
+    return [chunk for chunk in chunks if chunk.strip()]
+
+
+def chunk_text_by_tokens_with_metadata(
+    full_text: str,
+    *,
+    target_min_tokens: int,
+    target_max_tokens: int,
+    absolute_max_tokens: int,
+    dialogue_turn_splitting: bool = False,
+    speaker_label_mode: str = "drop",
+) -> Tuple[List[str], Dict[str, int]]:
+    metadata = {
+        "dialogue_turns_detected": 0,
+        "speaker_labels_dropped": 0,
+    }
+    if not full_text or full_text.isspace():
+        return [], metadata
+
+    target_min_tokens = max(1, int(target_min_tokens))
+    target_max_tokens = max(target_min_tokens, int(target_max_tokens))
+    absolute_max_tokens = max(target_max_tokens, int(absolute_max_tokens))
+
+    processed_segments, segment_meta = _segment_text_for_chunking(
+        full_text,
+        dialogue_turn_splitting=dialogue_turn_splitting,
+        speaker_label_mode=speaker_label_mode,
+    )
+    metadata.update(segment_meta)
+    if not processed_segments:
+        return [], metadata
+
+    text_chunks: List[str] = []
+    current_chunk_segments: List[str] = []
+    current_chunk_tokens = 0
+
+    for _, segment_text in processed_segments:
+        segment_variants = [segment_text]
+        if _estimate_token_count(segment_text) > absolute_max_tokens:
+            split_variants = _split_oversized_segment_by_tokens(
+                segment_text,
+                absolute_max_tokens=absolute_max_tokens,
+            )
+            if split_variants:
+                segment_variants = split_variants
+
+        for variant in segment_variants:
+            variant_tokens = _estimate_token_count(variant)
+
+            if not current_chunk_segments:
+                current_chunk_segments.append(variant)
+                current_chunk_tokens = variant_tokens
+                continue
+
+            combined_tokens = current_chunk_tokens + variant_tokens
+            if combined_tokens <= target_max_tokens:
+                current_chunk_segments.append(variant)
+                current_chunk_tokens = combined_tokens
+                continue
+
+            if (
+                current_chunk_tokens < target_min_tokens
+                and combined_tokens <= absolute_max_tokens
+            ):
+                current_chunk_segments.append(variant)
+                current_chunk_tokens = combined_tokens
+                continue
+
+            text_chunks.append("\n".join(current_chunk_segments))
+            current_chunk_segments = [variant]
+            current_chunk_tokens = variant_tokens
+
+    if current_chunk_segments:
+        text_chunks.append("\n".join(current_chunk_segments))
+
+    text_chunks = [chunk for chunk in text_chunks if chunk.strip()]
+    if not text_chunks and full_text.strip():
+        return [full_text.strip()], metadata
+
+    logger.info(
+        "Token chunking complete. Generated %d chunk(s) with targets min=%d max=%d hard_cap=%d.",
+        len(text_chunks),
+        target_min_tokens,
+        target_max_tokens,
+        absolute_max_tokens,
+    )
+    return text_chunks, metadata
+
+
+def build_chunk_recovery_plan(chunk_text: str) -> Tuple[Optional[str], List[str]]:
+    sanitized = re.sub(r"[∗*†‡•]+", " ", chunk_text)
+    sanitized = re.sub(r"\s+", " ", sanitized).strip()
+    direct_retry_text = sanitized if sanitized and sanitized != chunk_text else None
+
+    split_source = sanitized if sanitized else chunk_text
+    fallback_subchunks, _ = chunk_text_by_tokens_with_metadata(
+        split_source,
+        target_min_tokens=18,
+        target_max_tokens=36,
+        absolute_max_tokens=48,
+        dialogue_turn_splitting=False,
+        speaker_label_mode="drop",
+    )
+    if len(fallback_subchunks) <= 1:
+        return direct_retry_text, []
+
+    secondary_subchunks: List[str] = []
+    for subchunk in fallback_subchunks:
+        if _estimate_token_count(subchunk) > 32:
+            smaller_chunks, _ = chunk_text_by_tokens_with_metadata(
+                subchunk,
+                target_min_tokens=8,
+                target_max_tokens=16,
+                absolute_max_tokens=24,
+                dialogue_turn_splitting=False,
+                speaker_label_mode="drop",
+            )
+            if smaller_chunks:
+                secondary_subchunks.extend(smaller_chunks)
+                continue
+        secondary_subchunks.append(subchunk)
+
+    return direct_retry_text, secondary_subchunks
+
+
 def chunk_text_by_sentences_with_metadata(
     full_text: str,
     chunk_size: int,
@@ -1478,89 +1912,101 @@ if __name__ == "__main__":
 
     cases = [
         # ── Numbers ────────────────────────────────────────────────────
-        ("Plain integer",              "There are 1200 students and 42 teachers."),
-        ("Large number",               "The project costs $1,000,000 and took 365 days."),
-        ("Negative number",            "Temperature dropped to -5 degrees overnight."),
-        ("Float",                      "Pi is approximately 3.14159."),
-        ("Float trailing zero",        "The voltage is 1.50 volts."),
-        ("Leading decimal",            "Add .5 teaspoons of salt and .25 cup of milk."),
-        ("Negative leading decimal",   "A -.05 correction was applied."),
-        ("Zero",                       "There were 0 errors and 0.0 warnings."),
-        ("Comma thousands",            "The population is 7,900,000,000."),
+        ("Plain integer", "There are 1200 students and 42 teachers."),
+        ("Large number", "The project costs $1,000,000 and took 365 days."),
+        ("Negative number", "Temperature dropped to -5 degrees overnight."),
+        ("Float", "Pi is approximately 3.14159."),
+        ("Float trailing zero", "The voltage is 1.50 volts."),
+        ("Leading decimal", "Add .5 teaspoons of salt and .25 cup of milk."),
+        ("Negative leading decimal", "A -.05 correction was applied."),
+        ("Zero", "There were 0 errors and 0.0 warnings."),
+        ("Comma thousands", "The population is 7,900,000,000."),
         # ── Scientific notation ─────────────────────────────────────────
-        ("Scientific e-notation",      "Learning rate is 1e-4, weight decay 1e-5."),
-        ("Scientific capital E",       "Avogadro's number is 6.022E23."),
-        ("Scientific large exp",       "The signal is 2.5e10 Hz."),
+        ("Scientific e-notation", "Learning rate is 1e-4, weight decay 1e-5."),
+        ("Scientific capital E", "Avogadro's number is 6.022E23."),
+        ("Scientific large exp", "The signal is 2.5e10 Hz."),
         # ── Scale suffixes ─────────────────────────────────────────────
-        ("Model params B",             "We trained a 7B parameter model and a 13B variant."),
-        ("Model params M",             "The 340M model beat the 7B on MMLU."),
-        ("Scale suffix K",             "The salary was $85K per year."),
+        ("Model params B", "We trained a 7B parameter model and a 13B variant."),
+        ("Model params M", "The 340M model beat the 7B on MMLU."),
+        ("Scale suffix K", "The salary was $85K per year."),
         # ── Currency ───────────────────────────────────────────────────
-        ("Dollar amount",              "A coffee costs $4.99 here."),
-        ("Euro amount",                "Rent is €1,200 per month."),
-        ("Pound with cents",           "The book is £9.99."),
+        ("Dollar amount", "A coffee costs $4.99 here."),
+        ("Euro amount", "Rent is €1,200 per month."),
+        ("Pound with cents", "The book is £9.99."),
         # ── Percentages ────────────────────────────────────────────────
-        ("Percentage",                 "Inflation rose by 3.5% last quarter."),
-        ("Negative percentage",        "Stocks fell -2% today."),
+        ("Percentage", "Inflation rose by 3.5% last quarter."),
+        ("Negative percentage", "Stocks fell -2% today."),
         # ── Ordinals ───────────────────────────────────────────────────
-        ("Ordinals 1st/2nd/3rd",       "She finished 1st, he came 2nd, I was 3rd."),
-        ("Ordinal 21st",               "It's the 21st century and the 100th anniversary."),
-        ("Ordinal 42nd",               "He ran his 42nd marathon."),
-        ("Ordinal 33rd",               "On the 33rd floor."),
+        ("Ordinals 1st/2nd/3rd", "She finished 1st, he came 2nd, I was 3rd."),
+        ("Ordinal 21st", "It's the 21st century and the 100th anniversary."),
+        ("Ordinal 42nd", "He ran his 42nd marathon."),
+        ("Ordinal 33rd", "On the 33rd floor."),
         # ── Fractions ──────────────────────────────────────────────────
-        ("Half",                       "Cut the recipe in 1/2."),
-        ("Quarters",                   "Add 3/4 cup of sugar and 1/4 teaspoon of salt."),
-        ("Thirds",                     "The team completed 2/3 of the project."),
-        ("Eighths",                    "The pipe is 5/8 inch in diameter."),
+        ("Half", "Cut the recipe in 1/2."),
+        ("Quarters", "Add 3/4 cup of sugar and 1/4 teaspoon of salt."),
+        ("Thirds", "The team completed 2/3 of the project."),
+        ("Eighths", "The pipe is 5/8 inch in diameter."),
         # ── Time ───────────────────────────────────────────────────────
-        ("12-hour time",               "The meeting starts at 3:30pm."),
-        ("24-hour time",               "Departure at 14:00."),
-        ("Time with oh",               "Alarm set for 9:05 AM."),
-        ("Midnight",                   "The server restarts at 0:00."),
+        ("12-hour time", "The meeting starts at 3:30pm."),
+        ("24-hour time", "Departure at 14:00."),
+        ("Time with oh", "Alarm set for 9:05 AM."),
+        ("Midnight", "The server restarts at 0:00."),
         # ── Decades ────────────────────────────────────────────────────
-        ("Bare decade",                "The 80s music scene was iconic."),
-        ("Full decade",                "She grew up listening to 1990s grunge."),
-        ("2000s",                      "The 2000s brought social media."),
-        ("2020s",                      "AI took off in the 2020s."),
-        ("Apostrophe decade",          "Born in the '90s, raised on 2000s pop."),
+        ("Bare decade", "The 80s music scene was iconic."),
+        ("Full decade", "She grew up listening to 1990s grunge."),
+        ("2000s", "The 2000s brought social media."),
+        ("2020s", "AI took off in the 2020s."),
+        ("Apostrophe decade", "Born in the '90s, raised on 2000s pop."),
         # ── Ranges ─────────────────────────────────────────────────────
-        ("Numeric range",              "Read pages 10-20 for homework."),
-        ("Year range",                 "The war lasted from 2020-2024."),
-        ("Temperature range",          "Store between 5-10 degrees."),
+        ("Numeric range", "Read pages 10-20 for homework."),
+        ("Year range", "The war lasted from 2020-2024."),
+        ("Temperature range", "Store between 5-10 degrees."),
         # ── Model / version names ───────────────────────────────────────
-        ("GPT-3",                      "gpt-3 is pretty sick."),
-        ("GPT-3.5",                    "They upgraded to GPT-3.5 last month."),
-        ("GPL-3 license",              "This project is licensed under GPL-3."),
-        ("Python version",             "Requires Python-3.10 or higher."),
-        ("Multiple versions",          "Both CUDA-11 and CUDA-12 are supported."),
+        ("GPT-3", "gpt-3 is pretty sick."),
+        ("GPT-3.5", "They upgraded to GPT-3.5 last month."),
+        ("GPL-3 license", "This project is licensed under GPL-3."),
+        ("Python version", "Requires Python-3.10 or higher."),
+        ("Multiple versions", "Both CUDA-11 and CUDA-12 are supported."),
         # ── Units ──────────────────────────────────────────────────────
-        ("Distance",                   "The trail is 42km long."),
-        ("Weight",                     "Each package weighs 500kg."),
-        ("Temperature °C",             "Water boils at 100°C."),
-        ("Data size GB",               "Download the 2.5GB model file."),
-        ("Frequency GHz",              "The CPU runs at 3.6GHz."),
-        ("Latency ms",                 "Average latency is 12ms."),
+        ("Distance", "The trail is 42km long."),
+        ("Weight", "Each package weighs 500kg."),
+        ("Temperature °C", "Water boils at 100°C."),
+        ("Data size GB", "Download the 2.5GB model file."),
+        ("Frequency GHz", "The CPU runs at 3.6GHz."),
+        ("Latency ms", "Average latency is 12ms."),
         # ── HTML / URLs / emails ───────────────────────────────────────
-        ("HTML tags",                  "<b>Hello</b> World! It's a great day."),
-        ("URL and email",              "Visit https://example.com or email hello@example.com."),
-        ("Hashtags and mentions",      "#NLP @user great post!"),
+        ("HTML tags", "<b>Hello</b> World! It's a great day."),
+        ("URL and email", "Visit https://example.com or email hello@example.com."),
+        ("Hashtags and mentions", "#NLP @user great post!"),
         # ── Contractions ───────────────────────────────────────────────
-        ("Contractions",               "I don't know, won't you help? They've already left."),
-        ("Ain't / let's",              "Ain't no mountain high enough. Let's go!"),
+        ("Contractions", "I don't know, won't you help? They've already left."),
+        ("Ain't / let's", "Ain't no mountain high enough. Let's go!"),
         # ── Edge / tricky cases ─────────────────────────────────────────
-        ("Score / ratio",              "The final score was 3:0."),
-        ("Aspect ratio",               "The display is 16:9."),
-        ("IP address",                 "Connect to server at 192.168.1.1 on port 8080."),
-        ("Phone number",               "Call us at 555-1234 or 1-800-555-0199."),
-        ("Negative vs. hyphen",        "On a scale of -10 to 10, she rated it 8."),
-        ("Ellipsis",                   "He paused... then spoke."),
-        ("Em dash number",             "The result — 42 — surprised everyone."),
+        ("Score / ratio", "The final score was 3:0."),
+        ("Aspect ratio", "The display is 16:9."),
+        ("IP address", "Connect to server at 192.168.1.1 on port 8080."),
+        ("Phone number", "Call us at 555-1234 or 1-800-555-0199."),
+        ("Negative vs. hyphen", "On a scale of -10 to 10, she rated it 8."),
+        ("Ellipsis", "He paused... then spoke."),
+        ("Em dash number", "The result — 42 — surprised everyone."),
         # ── Mixed / real-world ──────────────────────────────────────────
-        ("Research abstract",          "We trained a 7B parameter model for 100 epochs at 1e-4 learning rate."),
-        ("GPT benchmark",              "GPT-4 scored 90% on the benchmark — 15% better than GPT-3.5."),
-        ("News headline",              "Fed raises rates by 0.25%, S&P 500 drops 1.2%."),
-        ("Startup pitch",              "We raised $2.5M in seed funding and are growing 20% month-over-month."),
-        ("Tech spec",                  "The M3 chip runs at 4.05GHz with a 40M transistor GPU and 8GB RAM."),
+        (
+            "Research abstract",
+            "We trained a 7B parameter model for 100 epochs at 1e-4 learning rate.",
+        ),
+        (
+            "GPT benchmark",
+            "GPT-4 scored 90% on the benchmark — 15% better than GPT-3.5.",
+        ),
+        ("News headline", "Fed raises rates by 0.25%, S&P 500 drops 1.2%."),
+        (
+            "Startup pitch",
+            "We raised $2.5M in seed funding and are growing 20% month-over-month.",
+        ),
+        (
+            "Tech spec",
+            "The M3 chip runs at 4.05GHz with a 40M transistor GPU and 8GB RAM.",
+        ),
     ]
 
     print("=" * 70)
@@ -1574,7 +2020,21 @@ if __name__ == "__main__":
     print("\n" + "=" * 70)
     print("number_to_words")
     print("=" * 70)
-    for n in [0, 1, 12, 19, 20, 99, 100, 1000, 1200, 15_000, 1_000_000, -42, 999_999_999]:
+    for n in [
+        0,
+        1,
+        12,
+        19,
+        20,
+        99,
+        100,
+        1000,
+        1200,
+        15_000,
+        1_000_000,
+        -42,
+        999_999_999,
+    ]:
         print(f"  {n:>15,} → {number_to_words(n)}")
 
     print("\n" + "=" * 70)
@@ -1587,6 +2047,10 @@ if __name__ == "__main__":
     print("expand_roman_numerals  (opt-in)")
     print("=" * 70)
     pp_roman = TextPreprocessor(expand_roman_numerals=True)
-    for text in ["World War II ended in 1945.", "Chapter IV begins here.", "Louis XIV was king."]:
+    for text in [
+        "World War II ended in 1945.",
+        "Chapter IV begins here.",
+        "Louis XIV was king.",
+    ]:
         print(f"  IN : {text}")
         print(f"  OUT: {pp_roman(text)}")

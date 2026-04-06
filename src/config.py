@@ -56,8 +56,13 @@ _BASE_TEXT_PROFILE_PROCESSING: Dict[str, Any] = {
     "filter_reference_artifacts": True,
     "filter_symbol_noise": True,
     "normalize_pause_punctuation": True,
+    "normalize_markdown": True,
+    "strip_non_speakable_symbols": True,
     "pause_strength": "medium",
     "max_punct_run": 3,
+    "target_min_tokens": 70,
+    "target_max_tokens": 120,
+    "absolute_max_tokens": 140,
 }
 
 DEFAULT_CONFIG: Dict[str, Any] = {

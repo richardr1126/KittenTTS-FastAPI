@@ -6,6 +6,7 @@
 import io
 import asyncio
 import logging
+import re
 import time
 import yaml  # For loading presets
 import numpy as np
@@ -117,6 +118,7 @@ def _preprocess_input_text(
     raw_text: str,
     *,
     context_label: str,
+    fail_on_unspeakable: bool = True,
     effective_text_options: Optional[Dict[str, Any]] = None,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
 ) -> str:
@@ -125,19 +127,27 @@ def _preprocess_input_text(
         effective_text_options=effective_text_options,
     )
     logger.info(
-        "%s preprocessing complete: raw_len=%d, cleaned_len=%d, table_lines_removed=%d, reference_fragments_removed=%d, symbol_noise_collapsed=%d, pause_punctuation_normalized=%d",
+        "%s preprocessing complete: raw_len=%d, cleaned_len=%d, table_lines_removed=%d, reference_fragments_removed=%d, symbol_noise_collapsed=%d, markdown_artifacts_normalized=%d, non_speakable_symbols_removed=%d, pause_punctuation_normalized=%d",
         context_label,
         len(raw_text),
         preprocess_meta.get("output_length", 0),
         preprocess_meta.get("table_lines_removed", 0),
         preprocess_meta.get("reference_fragments_removed", 0),
         preprocess_meta.get("symbol_noise_collapsed", 0),
+        preprocess_meta.get("markdown_artifacts_normalized", 0),
+        preprocess_meta.get("non_speakable_symbols_removed", 0),
         preprocess_meta.get("pause_punctuation_normalized", 0),
     )
     if perf_monitor is not None:
         perf_monitor.record("Input text preprocessed")
 
     if not engine.is_speakable_text(cleaned_text):
+        if not fail_on_unspeakable:
+            logger.info(
+                "%s preprocessing produced no speakable text; deferring to chunk-level cleanup.",
+                context_label,
+            )
+            return cleaned_text
         raise HTTPException(
             status_code=400,
             detail="Input text contained no speakable content after cleanup. Remove table/reference artifacts and retry.",
@@ -158,11 +168,28 @@ def _resolve_text_chunks(
     text_options = effective_text_options or {}
     dialogue_turn_splitting = bool(text_options.get("dialogue_turn_splitting", False))
     speaker_label_mode = str(text_options.get("speaker_label_mode", "drop"))
+    target_min_tokens = int(text_options.get("target_min_tokens", 70))
+    target_max_tokens = int(text_options.get("target_max_tokens", 120))
+    absolute_max_tokens = int(text_options.get("absolute_max_tokens", 140))
+
+    if target_max_tokens < target_min_tokens:
+        target_max_tokens = target_min_tokens
+    if absolute_max_tokens < target_max_tokens:
+        absolute_max_tokens = target_max_tokens
+
     if split_text and (len(raw_text) > (chunk_size * 1.5) or dialogue_turn_splitting):
-        logger.info(f"Splitting text into chunks of size ~{chunk_size}.")
-        text_chunks, chunk_meta = nlp.chunk_text_by_sentences_with_metadata(
-            raw_text,
+        logger.info(
+            "Splitting text into token-aware chunks (targets: min=%d max=%d hard_cap=%d; char_hint=%d).",
+            target_min_tokens,
+            target_max_tokens,
+            absolute_max_tokens,
             chunk_size,
+        )
+        text_chunks, chunk_meta = nlp.chunk_text_by_tokens_with_metadata(
+            raw_text,
+            target_min_tokens=target_min_tokens,
+            target_max_tokens=target_max_tokens,
+            absolute_max_tokens=absolute_max_tokens,
             dialogue_turn_splitting=dialogue_turn_splitting,
             speaker_label_mode=speaker_label_mode,
         )
@@ -189,6 +216,23 @@ def _resolve_text_chunks(
             status_code=400,
             detail="Input text contained no usable speakable chunks after cleanup.",
         )
+
+    for idx, chunk in enumerate(text_chunks, start=1):
+        logger.info(
+            "%s prepared chunk %d/%d (len=%d)",
+            context_label,
+            idx,
+            len(text_chunks),
+            len(chunk),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "%s prepared chunk %d/%d text: %s",
+                context_label,
+                idx,
+                len(text_chunks),
+                " ".join(chunk.split()),
+            )
 
     if split_text:
         cleaned_chunks = []
@@ -231,19 +275,151 @@ def _synthesize_chunks_and_merge(
     all_audio_segments_np: List[np.ndarray] = []
     engine_output_sample_rate: Optional[int] = None
 
+    def _try_synthesize(chunk_text: str) -> tuple[Optional[np.ndarray], Optional[int]]:
+        return engine.synthesize(
+            text=chunk_text,
+            voice=voice,
+            speed=speed,
+            clean_text=False,
+        )
+
+    def _recover_failed_chunk(
+        chunk_text: str,
+        chunk_index: int,
+        total_chunks: int,
+    ) -> List[np.ndarray]:
+        recovered: List[np.ndarray] = []
+
+        try:
+            direct_retry_text, fallback_subchunks = nlp.build_chunk_recovery_plan(
+                chunk_text
+            )
+        except Exception:
+            logger.error(
+                "Recovery planning failed for chunk %d/%d.",
+                chunk_index,
+                total_chunks,
+                exc_info=True,
+            )
+            return []
+
+        if direct_retry_text:
+            logger.warning(
+                "Recovery attempt for chunk %d/%d: removed symbol markers and retrying.",
+                chunk_index,
+                total_chunks,
+            )
+            audio_np, sr = _try_synthesize(direct_retry_text)
+            if audio_np is not None and sr is not None:
+                nonlocal engine_output_sample_rate
+                if engine_output_sample_rate is None:
+                    engine_output_sample_rate = sr
+                return [audio_np]
+
+        if not fallback_subchunks:
+            return []
+
+        logger.warning(
+            "Recovery attempt for chunk %d/%d: splitting into %d fallback subchunk(s).",
+            chunk_index,
+            total_chunks,
+            len(fallback_subchunks),
+        )
+        for sub_idx, subchunk in enumerate(fallback_subchunks, start=1):
+            try:
+                subchunk_sanitized, _ = engine.preprocess_text(
+                    subchunk,
+                    effective_text_options={
+                        "filter_table_artifacts": True,
+                        "filter_reference_artifacts": True,
+                        "filter_symbol_noise": True,
+                        "normalize_markdown": True,
+                        "strip_non_speakable_symbols": True,
+                        "normalize_pause_punctuation": True,
+                        "pause_strength": "medium",
+                        "max_punct_run": 2,
+                        "remove_punctuation": False,
+                    },
+                )
+            except Exception:
+                logger.warning(
+                    "Fallback subchunk %d/%d for chunk %d/%d failed during preprocessing; skipping.",
+                    sub_idx,
+                    len(fallback_subchunks),
+                    chunk_index,
+                    total_chunks,
+                    exc_info=True,
+                )
+                continue
+            if not engine.is_speakable_text(subchunk_sanitized):
+                continue
+            logger.info(
+                "Fallback subchunk %d/%d for chunk %d/%d (len=%d)",
+                sub_idx,
+                len(fallback_subchunks),
+                chunk_index,
+                total_chunks,
+                len(subchunk_sanitized),
+            )
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(
+                    "Fallback subchunk %d/%d for chunk %d/%d text: %s",
+                    sub_idx,
+                    len(fallback_subchunks),
+                    chunk_index,
+                    total_chunks,
+                    " ".join(subchunk_sanitized.split()),
+                )
+            audio_np, sr = _try_synthesize(subchunk_sanitized)
+            if audio_np is None or sr is None:
+                logger.warning(
+                    "Fallback subchunk %d/%d for chunk %d/%d still failed; skipping subchunk.",
+                    sub_idx,
+                    len(fallback_subchunks),
+                    chunk_index,
+                    total_chunks,
+                )
+                continue
+            if engine_output_sample_rate is None:
+                engine_output_sample_rate = sr
+            recovered.append(audio_np)
+
+        return recovered
+
     for i, chunk in enumerate(text_chunks):
         logger.info(f"Synthesizing chunk {i + 1}/{len(text_chunks)}...")
-        try:
-            chunk_audio_np, chunk_sr_from_engine = engine.synthesize(
-                text=chunk,
-                voice=voice,
-                speed=speed,
-                clean_text=False,
+        logger.info(
+            "Chunk %d/%d (len=%d)",
+            i + 1,
+            len(text_chunks),
+            len(chunk),
+        )
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "Chunk %d/%d text: %s",
+                i + 1,
+                len(text_chunks),
+                " ".join(chunk.split()),
             )
+        try:
+            chunk_audio_np, chunk_sr_from_engine = _try_synthesize(chunk)
             if perf_monitor is not None:
                 perf_monitor.record(f"Engine synthesized chunk {i + 1}")
 
             if chunk_audio_np is None or chunk_sr_from_engine is None:
+                recovered_segments = _recover_failed_chunk(
+                    chunk, i + 1, len(text_chunks)
+                )
+                if recovered_segments:
+                    all_audio_segments_np.extend(recovered_segments)
+                    logger.info(
+                        "Chunk %d/%d recovered via fallback path using %d segment(s).",
+                        i + 1,
+                        len(text_chunks),
+                        len(recovered_segments),
+                    )
+                    continue
+
                 error_detail = (
                     f"TTS engine failed to synthesize audio for chunk {i + 1}. "
                     "The cleaned text may still be unspeakable."
@@ -348,6 +524,7 @@ def _generate_audio_bytes(
     cleaned_text = _preprocess_input_text(
         raw_text,
         context_label=context_label,
+        fail_on_unspeakable=not split_text,
         effective_text_options=effective_text_options,
         perf_monitor=perf_monitor,
     )
@@ -818,7 +995,13 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
         logger.debug(perf_monitor.report())
         return StreamingResponse(io.BytesIO(encoded_audio), media_type=media_type)
 
-    except HTTPException:
+    except HTTPException as http_exc:
+        logger.error(
+            "OpenAI speech request failed with HTTP %d: %s",
+            http_exc.status_code,
+            http_exc.detail,
+            exc_info=True,
+        )
         raise
     except Exception as e:
         logger.error(f"Error in openai_speech_endpoint: {e}", exc_info=True)

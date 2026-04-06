@@ -53,6 +53,32 @@ class TextOptions(BaseModel):
         le=6,
         description="Maximum run length allowed for repeated pause punctuation.",
     )
+    normalize_markdown: Optional[bool] = Field(
+        None,
+        description="If true, strips markdown formatting artifacts into speech-safe plain text.",
+    )
+    strip_non_speakable_symbols: Optional[bool] = Field(
+        None,
+        description="If true, removes non-speakable symbols and emoji that can break phonemization.",
+    )
+    target_min_tokens: Optional[int] = Field(
+        None,
+        ge=10,
+        le=400,
+        description="Token-aware chunking lower target per chunk.",
+    )
+    target_max_tokens: Optional[int] = Field(
+        None,
+        ge=20,
+        le=600,
+        description="Token-aware chunking preferred upper target per chunk.",
+    )
+    absolute_max_tokens: Optional[int] = Field(
+        None,
+        ge=30,
+        le=800,
+        description="Token-aware hard cap per chunk; oversized segments are force-split.",
+    )
 
 
 class CustomTTSRequest(BaseModel):

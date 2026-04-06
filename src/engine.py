@@ -18,10 +18,7 @@ tts_model: Optional[KittenTTS] = None
 MODEL_LOADED: bool = False
 
 # KittenTTS available voices
-KITTEN_TTS_VOICES = [
-    "Bella", "Jasper", "Luna", "Bruno",
-    "Rosie", "Hugo", "Kiki", "Leo"
-]
+KITTEN_TTS_VOICES = ["Bella", "Jasper", "Luna", "Bruno", "Rosie", "Hugo", "Kiki", "Leo"]
 
 _ALLOWED_PAUSE_STRENGTHS = {"light", "medium", "strong"}
 _ALLOWED_SPEAKER_LABEL_MODES = {"drop", "speak"}
@@ -35,6 +32,11 @@ _PROFILE_SANITIZED_KEYS = {
     "dialogue_turn_splitting",
     "speaker_label_mode",
     "max_punct_run",
+    "normalize_markdown",
+    "strip_non_speakable_symbols",
+    "target_min_tokens",
+    "target_max_tokens",
+    "absolute_max_tokens",
 }
 _TEXT_PREPROCESSOR_PARAM_NAMES = {
     name
@@ -51,6 +53,11 @@ _TEXT_OPTION_DEFAULTS: Dict[str, Any] = {
     "dialogue_turn_splitting": False,
     "speaker_label_mode": "drop",
     "max_punct_run": 3,
+    "normalize_markdown": True,
+    "strip_non_speakable_symbols": True,
+    "target_min_tokens": 70,
+    "target_max_tokens": 120,
+    "absolute_max_tokens": 140,
 }
 
 
@@ -104,7 +111,9 @@ def _sanitize_text_options(raw_options: Optional[Dict[str, Any]]) -> Dict[str, A
                 _TEXT_OPTION_DEFAULTS["pause_strength"],
             )
     if "speaker_label_mode" in raw_options:
-        speaker_label_mode = str(raw_options.get("speaker_label_mode") or "").strip().lower()
+        speaker_label_mode = (
+            str(raw_options.get("speaker_label_mode") or "").strip().lower()
+        )
         if speaker_label_mode in _ALLOWED_SPEAKER_LABEL_MODES:
             sanitized["speaker_label_mode"] = speaker_label_mode
         else:
@@ -120,11 +129,44 @@ def _sanitize_text_options(raw_options: Optional[Dict[str, Any]]) -> Dict[str, A
             min_value=1,
             max_value=6,
         )
+    if "normalize_markdown" in raw_options:
+        sanitized["normalize_markdown"] = _as_bool(
+            raw_options.get("normalize_markdown"),
+            default=_TEXT_OPTION_DEFAULTS["normalize_markdown"],
+        )
+    if "strip_non_speakable_symbols" in raw_options:
+        sanitized["strip_non_speakable_symbols"] = _as_bool(
+            raw_options.get("strip_non_speakable_symbols"),
+            default=_TEXT_OPTION_DEFAULTS["strip_non_speakable_symbols"],
+        )
+    if "target_min_tokens" in raw_options:
+        sanitized["target_min_tokens"] = _as_int(
+            raw_options.get("target_min_tokens"),
+            _TEXT_OPTION_DEFAULTS["target_min_tokens"],
+            min_value=10,
+            max_value=400,
+        )
+    if "target_max_tokens" in raw_options:
+        sanitized["target_max_tokens"] = _as_int(
+            raw_options.get("target_max_tokens"),
+            _TEXT_OPTION_DEFAULTS["target_max_tokens"],
+            min_value=20,
+            max_value=600,
+        )
+    if "absolute_max_tokens" in raw_options:
+        sanitized["absolute_max_tokens"] = _as_int(
+            raw_options.get("absolute_max_tokens"),
+            _TEXT_OPTION_DEFAULTS["absolute_max_tokens"],
+            min_value=30,
+            max_value=800,
+        )
 
     return sanitized
 
 
-def _sanitize_profile_filter_options(raw_options: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def _sanitize_profile_filter_options(
+    raw_options: Optional[Dict[str, Any]],
+) -> Dict[str, Any]:
     if not isinstance(raw_options, dict):
         return {}
 
@@ -147,7 +189,9 @@ def _sanitize_profile_filter_options(raw_options: Optional[Dict[str, Any]]) -> D
     return sanitized
 
 
-def resolve_text_options(request_overrides: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+def resolve_text_options(
+    request_overrides: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
     text_processing_cfg = config_manager.get("text_processing", {})
     if not isinstance(text_processing_cfg, dict):
         text_processing_cfg = {}
@@ -156,7 +200,9 @@ def resolve_text_options(request_overrides: Optional[Dict[str, Any]] = None) -> 
     if not isinstance(profiles, dict):
         profiles = {}
 
-    active_profile = str(text_processing_cfg.get("active_profile") or "balanced").strip().lower()
+    active_profile = (
+        str(text_processing_cfg.get("active_profile") or "balanced").strip().lower()
+    )
     requested_profile = None
     if isinstance(request_overrides, dict) and request_overrides.get("profile"):
         requested_profile = str(request_overrides["profile"]).strip().lower()
@@ -167,7 +213,11 @@ def resolve_text_options(request_overrides: Optional[Dict[str, Any]] = None) -> 
         selected_profile = {}
 
     if not selected_profile:
-        fallback_profile_name = active_profile if isinstance(profiles.get(active_profile), dict) else "balanced"
+        fallback_profile_name = (
+            active_profile
+            if isinstance(profiles.get(active_profile), dict)
+            else "balanced"
+        )
         fallback_profile = profiles.get(fallback_profile_name, {})
         if not isinstance(fallback_profile, dict):
             fallback_profile = {}
@@ -190,6 +240,32 @@ def resolve_text_options(request_overrides: Optional[Dict[str, Any]] = None) -> 
     if isinstance(request_overrides, dict):
         effective_options.update(_sanitize_text_options(request_overrides))
 
+    target_min = _as_int(
+        effective_options.get("target_min_tokens"),
+        _TEXT_OPTION_DEFAULTS["target_min_tokens"],
+        min_value=10,
+        max_value=400,
+    )
+    target_max = _as_int(
+        effective_options.get("target_max_tokens"),
+        _TEXT_OPTION_DEFAULTS["target_max_tokens"],
+        min_value=20,
+        max_value=600,
+    )
+    absolute_max = _as_int(
+        effective_options.get("absolute_max_tokens"),
+        _TEXT_OPTION_DEFAULTS["absolute_max_tokens"],
+        min_value=30,
+        max_value=800,
+    )
+    if target_max < target_min:
+        target_max = target_min
+    if absolute_max < target_max:
+        absolute_max = target_max
+    effective_options["target_min_tokens"] = target_min
+    effective_options["target_max_tokens"] = target_max
+    effective_options["absolute_max_tokens"] = absolute_max
+
     effective_options["profile"] = selected_profile_name
     return effective_options
 
@@ -202,7 +278,9 @@ def _build_runtime_preprocessor(
     """
     options = effective_text_options or resolve_text_options()
     preprocessor_options = {
-        key: value for key, value in options.items() if key in _TEXT_PREPROCESSOR_PARAM_NAMES
+        key: value
+        for key, value in options.items()
+        if key in _TEXT_PREPROCESSOR_PARAM_NAMES
     }
     return TextPreprocessor(**preprocessor_options)
 
@@ -255,12 +333,12 @@ def load_model() -> bool:
         model_cache_path = config_manager.get_path(
             "paths.model_cache", "./model_cache", ensure_absolute=True
         )
-        
+
         logger.info(f"Loading KittenTTS model from: {model_repo_id}")
         logger.info(f"Requested inference device: {model_device}")
         logger.info(f"Using cache directory: {model_cache_path}")
 
-        # The KittenTTS package handles phonemizer, session, 
+        # The KittenTTS package handles phonemizer, session,
         # downloading, etc internally.
         tts_model = KittenTTS(
             model_repo_id,
@@ -301,7 +379,9 @@ def synthesize(
         return None, None
 
     if voice not in KITTEN_TTS_VOICES:
-        logger.error(f"Voice '{voice}' not available. Available voices: {KITTEN_TTS_VOICES}")
+        logger.error(
+            f"Voice '{voice}' not available. Available voices: {KITTEN_TTS_VOICES}"
+        )
         return None, None
 
     try:
@@ -309,12 +389,16 @@ def synthesize(
         logger.debug(f"Input text (first 100 chars): '{text[:100]}...'")
 
         # Generate audio using KittenTTS package.
-        audio = tts_model.generate(text, voice=voice, speed=speed, clean_text=clean_text)
+        audio = tts_model.generate(
+            text, voice=voice, speed=speed, clean_text=clean_text
+        )
 
         # KittenTTS uses 24kHz sample rate natively
         sample_rate = 24000
 
-        logger.info(f"Successfully generated {len(audio)} audio samples at {sample_rate}Hz")
+        logger.info(
+            f"Successfully generated {len(audio)} audio samples at {sample_rate}Hz"
+        )
         return audio, sample_rate
 
     except ValueError as e:
@@ -323,5 +407,6 @@ def synthesize(
     except Exception as e:
         logger.error(f"Error during KittenTTS synthesis: {e}", exc_info=True)
         return None, None
+
 
 # --- End File: engine.py ---
