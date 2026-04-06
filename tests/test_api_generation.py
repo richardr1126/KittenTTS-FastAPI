@@ -28,8 +28,7 @@ def _is_this_file_explicitly_targeted() -> bool:
 
 
 RUN_AUDIO_INTEGRATION = (
-    os.getenv("INTEGRATION_TESTS", "0") == "1"
-    or _is_this_file_explicitly_targeted()
+    os.getenv("INTEGRATION_TESTS", "0") == "1" or _is_this_file_explicitly_targeted()
 )
 
 
@@ -66,7 +65,9 @@ def integration_client() -> Generator[TestClient, None, None]:
         yield test_client
 
 
-def test_tts_mixed_prose_and_table_uses_cleaned_chunks(api_client: TestClient, monkeypatch):
+def test_tts_mixed_prose_and_table_uses_cleaned_chunks(
+    api_client: TestClient, monkeypatch
+):
     captured_calls = []
 
     def fake_synthesize(
@@ -219,7 +220,9 @@ def test_tts_accepts_non_latin_text_when_speakable(api_client: TestClient, monke
     assert all(clean_flag is False for _, clean_flag in captured_calls)
 
 
-def test_tts_route_passes_text_options_to_generation(api_client: TestClient, monkeypatch):
+def test_tts_route_passes_text_options_to_generation(
+    api_client: TestClient, monkeypatch
+):
     captured_kwargs = {}
 
     def fake_generate_audio_bytes(**kwargs):
@@ -274,6 +277,35 @@ def test_tts_dialogue_profile_drops_speaker_labels(api_client: TestClient, monke
     assert "alice:" not in joined_text
     assert "bob:" not in joined_text
     assert "hello there" in joined_text
+
+
+def test_health_live_endpoint_returns_ok(api_client: TestClient):
+    response = api_client.get("/health/live")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "live"
+
+
+def test_health_ready_endpoint_returns_503_when_model_not_loaded(
+    api_client: TestClient, monkeypatch
+):
+    monkeypatch.setattr(server.engine, "MODEL_LOADED", False)
+
+    response = api_client.get("/health/ready")
+
+    assert response.status_code == 503
+    assert "model not loaded" in response.json()["detail"].lower()
+
+
+def test_health_ready_endpoint_returns_ok_when_model_loaded(
+    api_client: TestClient, monkeypatch
+):
+    monkeypatch.setattr(server.engine, "MODEL_LOADED", True)
+
+    response = api_client.get("/health/ready")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == "ready"
 
 
 @pytest.mark.asyncio
@@ -388,7 +420,9 @@ async def test_openai_models_list_via_openai_python_client(monkeypatch):
     ),
 )
 @pytest.mark.parametrize("output_format", ["wav", "mp3", "opus", "aac"])
-def test_real_audio_generation_via_tts_route(integration_client: TestClient, output_format: str):
+def test_real_audio_generation_via_tts_route(
+    integration_client: TestClient, output_format: str
+):
     payload = {
         "text": (
             "This is a real synthesis test. "
@@ -404,7 +438,9 @@ def test_real_audio_generation_via_tts_route(integration_client: TestClient, out
 
     response = integration_client.post("/tts", json=payload)
 
-    expected_media_type = "audio/aac" if output_format == "aac" else f"audio/{output_format}"
+    expected_media_type = (
+        "audio/aac" if output_format == "aac" else f"audio/{output_format}"
+    )
     assert response.status_code == 200, response.text
     assert response.headers["content-type"].startswith(expected_media_type)
     if output_format == "wav":

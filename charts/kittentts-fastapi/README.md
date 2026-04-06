@@ -48,6 +48,9 @@ Set app-specific runtime options under:
 `app-template.controllers.main.containers.main.env`
 
 Commonly used keys:
+- `KITTEN_SERVER_WORKERS`
+- `KITTEN_MAX_CONCURRENT_GENERATIONS`
+- `KITTEN_GENERATION_QUEUE_TIMEOUT_SECONDS`
 - `KITTEN_MODEL_REPO_ID`
 - `KITTEN_TTS_DEVICE`
 - `KITTEN_MODEL_CACHE`
@@ -61,3 +64,8 @@ Text preprocessing behavior is profile-driven. Select the active profile with
 `KITTEN_TEXT_PROFILE`.
 When setting `KITTEN_TEXT_PROFILES_JSON` via Helm CLI, use `--set-literal` to
 avoid JSON parsing issues in `--set`/`--set-string`.
+
+The default chart probes are configured to use:
+- liveness: `GET /health/live`
+- readiness: `GET /health/ready`
+- startupProbe: `GET /health/ready`

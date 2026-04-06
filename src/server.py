@@ -4,6 +4,7 @@
 # configuration management, and file uploads.
 
 import io
+import asyncio
 import logging
 import time
 import yaml  # For loading presets
@@ -32,6 +33,9 @@ from config import (
     config_manager,
     get_host,
     get_port,
+    get_server_workers,
+    get_max_concurrent_generations,
+    get_generation_queue_timeout_seconds,
     get_ui_title,
     get_gen_default_speed,
     get_audio_sample_rate,
@@ -87,6 +91,9 @@ logging.basicConfig(
 logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 logging.getLogger("watchfiles").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+
+_generation_semaphore: Optional[asyncio.Semaphore] = None
+_generation_queue_timeout_seconds: float = 0.0
 
 # --- Static Files and HTML Templates Configuration ---
 ui_static_path = Path(__file__).parent / "ui"
@@ -225,7 +232,7 @@ def _synthesize_chunks_and_merge(
     engine_output_sample_rate: Optional[int] = None
 
     for i, chunk in enumerate(text_chunks):
-        logger.info(f"Synthesizing chunk {i+1}/{len(text_chunks)}...")
+        logger.info(f"Synthesizing chunk {i + 1}/{len(text_chunks)}...")
         try:
             chunk_audio_np, chunk_sr_from_engine = engine.synthesize(
                 text=chunk,
@@ -234,11 +241,11 @@ def _synthesize_chunks_and_merge(
                 clean_text=False,
             )
             if perf_monitor is not None:
-                perf_monitor.record(f"Engine synthesized chunk {i+1}")
+                perf_monitor.record(f"Engine synthesized chunk {i + 1}")
 
             if chunk_audio_np is None or chunk_sr_from_engine is None:
                 error_detail = (
-                    f"TTS engine failed to synthesize audio for chunk {i+1}. "
+                    f"TTS engine failed to synthesize audio for chunk {i + 1}. "
                     "The cleaned text may still be unspeakable."
                 )
                 logger.error(error_detail)
@@ -248,7 +255,7 @@ def _synthesize_chunks_and_merge(
                 engine_output_sample_rate = chunk_sr_from_engine
             elif engine_output_sample_rate != chunk_sr_from_engine:
                 logger.warning(
-                    f"Inconsistent sample rate from engine: chunk {i+1} ({chunk_sr_from_engine}Hz) "
+                    f"Inconsistent sample rate from engine: chunk {i + 1} ({chunk_sr_from_engine}Hz) "
                     f"differs from previous ({engine_output_sample_rate}Hz). Using first chunk's SR."
                 )
 
@@ -257,7 +264,7 @@ def _synthesize_chunks_and_merge(
         except HTTPException:
             raise
         except Exception as e_chunk:
-            error_detail = f"Error processing audio chunk {i+1}: {str(e_chunk)}"
+            error_detail = f"Error processing audio chunk {i + 1}: {str(e_chunk)}"
             logger.error(error_detail, exc_info=True)
             raise HTTPException(status_code=500, detail=error_detail)
 
@@ -353,7 +360,9 @@ def _generate_audio_bytes(
         precleaned_text=cleaned_text,
         perf_monitor=perf_monitor,
     )
-    logger.info("%s generation will synthesize %d chunk(s).", context_label, len(text_chunks))
+    logger.info(
+        "%s generation will synthesize %d chunk(s).", context_label, len(text_chunks)
+    )
 
     final_audio_np, engine_output_sample_rate = _synthesize_chunks_and_merge(
         text_chunks=text_chunks,
@@ -414,6 +423,40 @@ def _resolve_openai_speech_model_id(requested_model: str) -> str:
     )
 
 
+async def _generate_audio_bytes_with_limits(**generation_kwargs) -> bytes:
+    if _generation_semaphore is None:
+        return await asyncio.to_thread(_generate_audio_bytes, **generation_kwargs)
+
+    acquired = False
+    try:
+        if _generation_queue_timeout_seconds > 0:
+            await asyncio.wait_for(
+                _generation_semaphore.acquire(),
+                timeout=_generation_queue_timeout_seconds,
+            )
+        else:
+            await _generation_semaphore.acquire()
+        acquired = True
+    except asyncio.TimeoutError:
+        logger.warning(
+            "Generation queue timeout reached (%.2fs). Rejecting request.",
+            _generation_queue_timeout_seconds,
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                "Server is currently busy processing other generation requests. "
+                "Please retry shortly."
+            ),
+        )
+
+    try:
+        return await asyncio.to_thread(_generate_audio_bytes, **generation_kwargs)
+    finally:
+        if acquired:
+            _generation_semaphore.release()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Manages application startup and shutdown events."""
@@ -424,7 +467,9 @@ async def lifespan(app: FastAPI):
         paths_to_ensure = [
             ui_static_path,
             config_manager.get_path(
-                "paths.model_cache", str(PROJECT_ROOT / "model_cache"), ensure_absolute=True
+                "paths.model_cache",
+                str(PROJECT_ROOT / "model_cache"),
+                ensure_absolute=True,
             ),
         ]
         for p in paths_to_ensure:
@@ -436,6 +481,17 @@ async def lifespan(app: FastAPI):
             )
         else:
             logger.info("TTS Model loaded successfully via engine.")
+
+        global _generation_semaphore
+        global _generation_queue_timeout_seconds
+        max_concurrency = get_max_concurrent_generations()
+        _generation_queue_timeout_seconds = get_generation_queue_timeout_seconds()
+        _generation_semaphore = asyncio.Semaphore(max_concurrency)
+        logger.info(
+            "Generation concurrency limit configured: max_concurrent_generations=%d, queue_timeout_seconds=%.2f",
+            max_concurrency,
+            _generation_queue_timeout_seconds,
+        )
 
         _log_access_urls(get_host(), get_port())
 
@@ -571,6 +627,18 @@ async def get_ui_initial_data():
         )
 
 
+@app.get("/health/live", include_in_schema=False, tags=["Health"])
+async def health_live() -> dict:
+    return {"status": "live"}
+
+
+@app.get("/health/ready", include_in_schema=False, tags=["Health"])
+async def health_ready() -> dict:
+    if not engine.MODEL_LOADED:
+        raise HTTPException(status_code=503, detail="Model not loaded")
+    return {"status": "ready"}
+
+
 @app.post(
     "/restart_server", response_model=UpdateStatusResponse, tags=["Configuration"]
 )
@@ -651,9 +719,7 @@ async def custom_tts_endpoint(
     output_format_str = (
         request.output_format if request.output_format else get_audio_output_format()
     )
-    split_text_to_use = (
-        request.split_text if request.split_text is not None else True
-    )
+    split_text_to_use = request.split_text if request.split_text is not None else True
     chunk_size_to_use = request.chunk_size if request.chunk_size is not None else 120
     request_text_options = (
         request.text_options.model_dump(exclude_none=True)
@@ -661,7 +727,7 @@ async def custom_tts_endpoint(
         else None
     )
 
-    encoded_audio_bytes = _generate_audio_bytes(
+    encoded_audio_bytes = await _generate_audio_bytes_with_limits(
         raw_text=request.text,
         voice=request.voice,
         speed=resolved_speed,
@@ -731,7 +797,7 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
     perf_monitor.record("Parameters resolved")
 
     try:
-        encoded_audio = _generate_audio_bytes(
+        encoded_audio = await _generate_audio_bytes_with_limits(
             raw_text=request.input_,
             voice=request.voice,
             speed=request.speed,
@@ -781,7 +847,7 @@ async def openai_model_retrieve_endpoint(model_id: str):
 @app.get("/v1/audio/voices", tags=["OpenAI Compatible"])
 async def openai_voices_endpoint():
     """
-    Returns a list of available voices. 
+    Returns a list of available voices.
     Compatible with some OpenAI-like integrations (e.g. OpenReader).
     """
     if not engine.MODEL_LOADED:
@@ -789,9 +855,8 @@ async def openai_voices_endpoint():
             status_code=503,
             detail="TTS engine model is not currently loaded or available.",
         )
-    
-    return {"voices": engine.KITTEN_TTS_VOICES}
 
+    return {"voices": engine.KITTEN_TTS_VOICES}
 
 
 # --- Main Execution ---
@@ -809,6 +874,6 @@ if __name__ == "__main__":
         host=server_host,
         port=server_port,
         log_level="info",
-        workers=1,
+        workers=get_server_workers(),
         reload=False,
     )

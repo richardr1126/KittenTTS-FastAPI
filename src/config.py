@@ -65,6 +65,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "host": "0.0.0.0",
         "port": 8005,
         "enable_performance_monitor": False,
+        "worker_processes": 1,
+        "max_concurrent_generations": 1,
+        "generation_queue_timeout_seconds": 0.0,
     },
     "model": {
         "repo_id": "KittenML/kitten-tts-nano-0.8-fp32",
@@ -116,6 +119,9 @@ ENV_KEY_MAP: Dict[str, str] = {
     "server.host": "KITTEN_SERVER_HOST",
     "server.port": "KITTEN_SERVER_PORT",
     "server.enable_performance_monitor": "KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR",
+    "server.worker_processes": "KITTEN_SERVER_WORKERS",
+    "server.max_concurrent_generations": "KITTEN_MAX_CONCURRENT_GENERATIONS",
+    "server.generation_queue_timeout_seconds": "KITTEN_GENERATION_QUEUE_TIMEOUT_SECONDS",
     "model.repo_id": "KITTEN_MODEL_REPO_ID",
     "tts_engine.device": "KITTEN_TTS_DEVICE",
     "paths.model_cache": "KITTEN_MODEL_CACHE",
@@ -165,9 +171,13 @@ class EnvConfigManager:
 
     def _ensure_default_paths_exist(self):
         try:
-            Path(DEFAULT_CONFIG["paths"]["model_cache"]).mkdir(parents=True, exist_ok=True)
+            Path(DEFAULT_CONFIG["paths"]["model_cache"]).mkdir(
+                parents=True, exist_ok=True
+            )
         except Exception as exc:
-            logger.error("Error creating default model cache directory: %s", exc, exc_info=True)
+            logger.error(
+                "Error creating default model cache directory: %s", exc, exc_info=True
+            )
 
     def _parse_env_file(self) -> Dict[str, str]:
         if not ENV_FILE_PATH.exists():
@@ -204,13 +214,21 @@ class EnvConfigManager:
             try:
                 return int(str(raw_value).strip())
             except (ValueError, TypeError):
-                logger.warning("Invalid integer env value '%s'. Falling back to default '%s'.", raw_value, default_value)
+                logger.warning(
+                    "Invalid integer env value '%s'. Falling back to default '%s'.",
+                    raw_value,
+                    default_value,
+                )
                 return default_value
         if isinstance(default_value, float):
             try:
                 return float(str(raw_value).strip())
             except (ValueError, TypeError):
-                logger.warning("Invalid float env value '%s'. Falling back to default '%s'.", raw_value, default_value)
+                logger.warning(
+                    "Invalid float env value '%s'. Falling back to default '%s'.",
+                    raw_value,
+                    default_value,
+                )
                 return default_value
         if isinstance(default_value, dict):
             try:
@@ -250,7 +268,9 @@ class EnvConfigManager:
 
     def _detect_best_device(self) -> str:
         if ort is None:
-            logger.info("onnxruntime not available during device detection. Falling back to CPU.")
+            logger.info(
+                "onnxruntime not available during device detection. Falling back to CPU."
+            )
             return "cpu"
 
         try:
@@ -264,11 +284,18 @@ class EnvConfigManager:
             logger.info("CUDAExecutionProvider not found. Using CPU.")
             return "cpu"
         except Exception as exc:
-            logger.warning("Error during ONNX Runtime device detection: %s. Defaulting to CPU.", exc)
+            logger.warning(
+                "Error during ONNX Runtime device detection: %s. Defaulting to CPU.",
+                exc,
+            )
             return "cpu"
 
     def _resolve_paths_and_device(self, config_data: Dict[str, Any]) -> Dict[str, Any]:
-        configured_device = str(_get_nested_value(config_data, ["tts_engine", "device"], "auto")).strip().lower()
+        configured_device = (
+            str(_get_nested_value(config_data, ["tts_engine", "device"], "auto"))
+            .strip()
+            .lower()
+        )
 
         if configured_device == "auto":
             resolved_device = self._detect_best_device()
@@ -287,7 +314,9 @@ class EnvConfigManager:
 
         model_cache_raw = _get_nested_value(config_data, ["paths", "model_cache"])
         if isinstance(model_cache_raw, str):
-            _set_nested_value(config_data, ["paths", "model_cache"], Path(model_cache_raw))
+            _set_nested_value(
+                config_data, ["paths", "model_cache"], Path(model_cache_raw)
+            )
 
         logger.info("TTS processing device resolved to: %s", resolved_device)
         return config_data
@@ -306,12 +335,16 @@ class EnvConfigManager:
 
             # Merge profile JSON overrides onto default profiles so callers can
             # patch specific profile keys without redefining the full object.
-            if key_path == "text_processing.profiles" and isinstance(coerced_value, dict):
+            if key_path == "text_processing.profiles" and isinstance(
+                coerced_value, dict
+            ):
                 existing_profiles = _get_nested_value(
                     base_config, ["text_processing", "profiles"], {}
                 )
                 merged_profiles = (
-                    deepcopy(existing_profiles) if isinstance(existing_profiles, dict) else {}
+                    deepcopy(existing_profiles)
+                    if isinstance(existing_profiles, dict)
+                    else {}
                 )
                 for profile_name, profile_overrides in coerced_value.items():
                     if (
@@ -399,7 +432,9 @@ class EnvConfigManager:
         config_copy = deepcopy(config_dict)
         model_cache_path = _get_nested_value(config_copy, ["paths", "model_cache"])
         if isinstance(model_cache_path, Path):
-            _set_nested_value(config_copy, ["paths", "model_cache"], str(model_cache_path))
+            _set_nested_value(
+                config_copy, ["paths", "model_cache"], str(model_cache_path)
+            )
         return config_copy
 
 
@@ -411,11 +446,39 @@ def _get_default_from_structure(key_path: str) -> Any:
 
 
 def get_host() -> str:
-    return config_manager.get_string("server.host", _get_default_from_structure("server.host"))
+    return config_manager.get_string(
+        "server.host", _get_default_from_structure("server.host")
+    )
 
 
 def get_port() -> int:
-    return config_manager.get_int("server.port", _get_default_from_structure("server.port"))
+    return config_manager.get_int(
+        "server.port", _get_default_from_structure("server.port")
+    )
+
+
+def get_server_workers() -> int:
+    workers = config_manager.get_int(
+        "server.worker_processes",
+        _get_default_from_structure("server.worker_processes"),
+    )
+    return workers if workers > 0 else 1
+
+
+def get_max_concurrent_generations() -> int:
+    max_concurrency = config_manager.get_int(
+        "server.max_concurrent_generations",
+        _get_default_from_structure("server.max_concurrent_generations"),
+    )
+    return max_concurrency if max_concurrency > 0 else 1
+
+
+def get_generation_queue_timeout_seconds() -> float:
+    queue_timeout_seconds = config_manager.get_float(
+        "server.generation_queue_timeout_seconds",
+        _get_default_from_structure("server.generation_queue_timeout_seconds"),
+    )
+    return queue_timeout_seconds if queue_timeout_seconds >= 0 else 0.0
 
 
 def get_audio_output_format() -> str:
@@ -425,11 +488,15 @@ def get_audio_output_format() -> str:
 
 
 def get_model_repo_id() -> str:
-    return config_manager.get_string("model.repo_id", _get_default_from_structure("model.repo_id"))
+    return config_manager.get_string(
+        "model.repo_id", _get_default_from_structure("model.repo_id")
+    )
 
 
 def get_tts_device() -> str:
-    return config_manager.get_string("tts_engine.device", _get_default_from_structure("tts_engine.device"))
+    return config_manager.get_string(
+        "tts_engine.device", _get_default_from_structure("tts_engine.device")
+    )
 
 
 def get_model_cache_path(ensure_absolute: bool = True) -> Path:
@@ -462,7 +529,9 @@ def get_audio_sample_rate() -> int:
 
 
 def get_ui_title() -> str:
-    return config_manager.get_string("ui.title", _get_default_from_structure("ui.title"))
+    return config_manager.get_string(
+        "ui.title", _get_default_from_structure("ui.title")
+    )
 
 
 def get_full_config_for_template() -> Dict[str, Any]:

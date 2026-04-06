@@ -26,3 +26,16 @@ def test_text_profiles_json_env_merges_with_default_profiles(monkeypatch):
     assert profiles["balanced"]["filter_table_artifacts"] is True
     assert profiles["custom"]["pause_strength"] == "light"
     assert profiles["custom"]["dialogue_turn_splitting"] is True
+
+
+def test_server_concurrency_env_values_are_coerced(monkeypatch):
+    monkeypatch.setenv("KITTEN_TTS_DEVICE", "cpu")
+    monkeypatch.setenv("KITTEN_SERVER_WORKERS", "3")
+    monkeypatch.setenv("KITTEN_MAX_CONCURRENT_GENERATIONS", "2")
+    monkeypatch.setenv("KITTEN_GENERATION_QUEUE_TIMEOUT_SECONDS", "15.5")
+
+    manager = EnvConfigManager()
+
+    assert manager.get_int("server.worker_processes") == 3
+    assert manager.get_int("server.max_concurrent_generations") == 2
+    assert manager.get_float("server.generation_queue_timeout_seconds") == 15.5

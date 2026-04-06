@@ -19,6 +19,9 @@ app-template:
             # KITTEN_SERVER_HOST: 0.0.0.0
             # KITTEN_SERVER_PORT: 8005
             # KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR: "false"
+            # KITTEN_SERVER_WORKERS: "1"
+            # KITTEN_MAX_CONCURRENT_GENERATIONS: "1"
+            # KITTEN_GENERATION_QUEUE_TIMEOUT_SECONDS: "30"
             # KITTEN_MODEL_REPO_ID: KittenML/kitten-tts-nano-0.8-fp32
             # KITTEN_TTS_DEVICE: auto # cpu, cuda, or auto
             # KITTEN_MODEL_CACHE: /app/model_cache
@@ -29,18 +32,38 @@ app-template:
             # KITTEN_UI_SHOW_LANGUAGE_SELECT: "true"
             # HF_HUB_ENABLE_HF_TRANSFER: "1"
           probes:
-            liveness: &probe
+            startup:
               enabled: true
               custom: true
               spec:
                 httpGet:
-                  path: /docs
+                  path: /health/ready
+                  port: 8005
+                periodSeconds: 10
+                timeoutSeconds: 3
+                failureThreshold: 30
+            liveness:
+              enabled: true
+              custom: true
+              spec:
+                httpGet:
+                  path: /health/live
                   port: 8005
                 initialDelaySeconds: 15
                 periodSeconds: 10
-                timeoutSeconds: 1
+                timeoutSeconds: 3
                 failureThreshold: 3
-            readiness: *probe
+            readiness:
+              enabled: true
+              custom: true
+              spec:
+                httpGet:
+                  path: /health/ready
+                  port: 8005
+                initialDelaySeconds: 5
+                periodSeconds: 5
+                timeoutSeconds: 3
+                failureThreshold: 6
           resources:
             requests:
               memory: 512Mi

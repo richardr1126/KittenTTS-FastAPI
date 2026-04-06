@@ -52,6 +52,9 @@ Supported environment variables:
 *   `KITTEN_SERVER_HOST` (default: `0.0.0.0`)
 *   `KITTEN_SERVER_PORT` (default: `8005`)
 *   `KITTEN_SERVER_ENABLE_PERFORMANCE_MONITOR` (default: `false`)
+*   `KITTEN_SERVER_WORKERS` (default: `1`, uvicorn worker processes)
+*   `KITTEN_MAX_CONCURRENT_GENERATIONS` (default: `1`, in-process synth concurrency limit)
+*   `KITTEN_GENERATION_QUEUE_TIMEOUT_SECONDS` (default: `0`, `0` waits indefinitely; positive value returns `429` when queue wait exceeds timeout)
 *   `KITTEN_MODEL_REPO_ID` (default: `KittenML/kitten-tts-nano-0.8-fp32`)
 *   `KITTEN_TTS_DEVICE` (default: `auto`, options: `auto`, `cpu`, `cuda`)
 *   `KITTEN_MODEL_CACHE` (default: `model_cache`)
@@ -169,6 +172,10 @@ All other preprocessing flags are profile-defined server defaults.
 
 ### Interactive Docs
 Visit `http://localhost:8005/docs` for the full Swagger UI.
+
+### Health Endpoints
+- `GET /health/live` for liveness probes (fast process health check)
+- `GET /health/ready` for readiness probes (returns `503` until model is loaded)
 
 ---
 

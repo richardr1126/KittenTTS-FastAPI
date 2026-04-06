@@ -25,7 +25,6 @@ services:
             - driver: nvidia
               count: 1
               capabilities: [gpu]
-
     # Method 2: Legacy Docker Compose (for older setups)
     # runtime: nvidia
 
@@ -36,4 +35,10 @@ services:
       # Make NVIDIA GPUs visible and specify capabilities for PyTorch
       - NVIDIA_VISIBLE_DEVICES=all
       - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8005/health/ready || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
 
