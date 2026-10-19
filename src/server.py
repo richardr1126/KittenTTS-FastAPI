@@ -7,6 +7,7 @@ import io
 import asyncio
 import logging
 import re
+import threading
 import time
 import yaml  # For loading presets
 import numpy as np
@@ -22,6 +23,7 @@ from fastapi import (
 )
 from fastapi.responses import (
     HTMLResponse,
+    Response,
     StreamingResponse,
     FileResponse,
 )
@@ -95,6 +97,13 @@ logger = logging.getLogger(__name__)
 
 _generation_semaphore: Optional[asyncio.Semaphore] = None
 _generation_queue_timeout_seconds: float = 0.0
+
+# nginx's code for a request the client closed before the response; nobody reads it.
+_CLIENT_CLOSED_REQUEST_STATUS = 499
+
+
+class ClientDisconnectedError(Exception):
+    """The caller went away, so its generation result has no reader."""
 
 # --- Static Files and HTML Templates Configuration ---
 ui_static_path = Path(__file__).parent / "ui"
@@ -271,6 +280,7 @@ def _synthesize_chunks_and_merge(
     voice: str,
     speed: float,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> tuple[np.ndarray, int]:
     all_audio_segments_np: List[np.ndarray] = []
     engine_output_sample_rate: Optional[int] = None
@@ -387,6 +397,10 @@ def _synthesize_chunks_and_merge(
         return recovered
 
     for i, chunk in enumerate(text_chunks):
+        # A running model call cannot be interrupted, but the remaining chunks
+        # of an abandoned request can be skipped.
+        if cancel_event is not None and cancel_event.is_set():
+            raise ClientDisconnectedError()
         logger.info(f"Synthesizing chunk {i + 1}/{len(text_chunks)}...")
         logger.info(
             "Chunk %d/%d (len=%d)",
@@ -518,6 +532,7 @@ def _generate_audio_bytes(
     context_label: str,
     text_options: Optional[Dict[str, Any]] = None,
     perf_monitor: Optional[utils.PerformanceMonitor] = None,
+    cancel_event: Optional[threading.Event] = None,
 ) -> bytes:
     effective_text_options = engine.resolve_text_options(text_options)
     logger.debug("%s effective text options: %s", context_label, effective_text_options)
@@ -546,6 +561,7 @@ def _generate_audio_bytes(
         voice=voice,
         speed=speed,
         perf_monitor=perf_monitor,
+        cancel_event=cancel_event,
     )
 
     encoded_audio_bytes = utils.encode_audio(
@@ -600,38 +616,84 @@ def _resolve_openai_speech_model_id(requested_model: str) -> str:
     )
 
 
-async def _generate_audio_bytes_with_limits(**generation_kwargs) -> bytes:
+async def _wait_for_disconnect(http_request: Request) -> None:
+    # The body is already read, so the next ASGI message is the disconnect.
+    while (await http_request.receive())["type"] != "http.disconnect":
+        pass
+
+
+async def _acquire_generation_slot(disconnect: Optional[asyncio.Future]) -> bool:
+    """Waits for a generation slot, giving up as soon as the client leaves."""
     if _generation_semaphore is None:
-        return await asyncio.to_thread(_generate_audio_bytes, **generation_kwargs)
-
-    acquired = False
+        return False
+    acquire = asyncio.ensure_future(_generation_semaphore.acquire())
+    waiters = {acquire} if disconnect is None else {acquire, disconnect}
     try:
-        if _generation_queue_timeout_seconds > 0:
-            await asyncio.wait_for(
-                _generation_semaphore.acquire(),
-                timeout=_generation_queue_timeout_seconds,
-            )
-        else:
-            await _generation_semaphore.acquire()
-        acquired = True
-    except asyncio.TimeoutError:
-        logger.warning(
-            "Generation queue timeout reached (%.2fs). Rejecting request.",
-            _generation_queue_timeout_seconds,
+        done, _ = await asyncio.wait(
+            waiters,
+            timeout=_generation_queue_timeout_seconds or None,
+            return_when=asyncio.FIRST_COMPLETED,
         )
-        raise HTTPException(
-            status_code=429,
-            detail=(
-                "Server is currently busy processing other generation requests. "
-                "Please retry shortly."
-            ),
-        )
-
-    try:
-        return await asyncio.to_thread(_generate_audio_bytes, **generation_kwargs)
     finally:
-        if acquired:
-            _generation_semaphore.release()
+        if not acquire.done():
+            acquire.cancel()
+    if acquire in done:
+        return True
+    # The cancelled acquire can still have won the slot; hand it back.
+    try:
+        await acquire
+    except asyncio.CancelledError:
+        pass
+    else:
+        _generation_semaphore.release()
+    if disconnect is not None and disconnect in done:
+        raise ClientDisconnectedError()
+    logger.warning(
+        "Generation queue timeout reached (%.2fs). Rejecting request.",
+        _generation_queue_timeout_seconds,
+    )
+    raise HTTPException(
+        status_code=429,
+        detail=(
+            "Server is currently busy processing other generation requests. "
+            "Please retry shortly."
+        ),
+    )
+
+
+async def _generate_audio_bytes_with_limits(
+    http_request: Optional[Request] = None, **generation_kwargs
+) -> bytes:
+    # Clients such as OpenReader abandon requests when the listener seeks. The
+    # server does not cancel a plain endpoint on disconnect, so without this a
+    # queued request still holds the model for audio nobody will read.
+    cancel_event = threading.Event()
+    disconnect: Optional[asyncio.Future] = None
+    if http_request is not None:
+        disconnect = asyncio.ensure_future(_wait_for_disconnect(http_request))
+        disconnect.add_done_callback(
+            lambda task: cancel_event.set()
+            if not task.cancelled() and task.exception() is None
+            else None
+        )
+    context_label = generation_kwargs.get("context_label", "generation")
+    try:
+        acquired = await _acquire_generation_slot(disconnect)
+        try:
+            if cancel_event.is_set():
+                raise ClientDisconnectedError()
+            return await asyncio.to_thread(
+                _generate_audio_bytes, cancel_event=cancel_event, **generation_kwargs
+            )
+        finally:
+            if acquired:
+                _generation_semaphore.release()
+    except ClientDisconnectedError:
+        logger.info("%s client disconnected; skipped its remaining generation.", context_label)
+        raise
+    finally:
+        if disconnect is not None:
+            disconnect.cancel()
 
 
 @asynccontextmanager
@@ -863,7 +925,7 @@ async def restart_server_endpoint():
     },
 )
 async def custom_tts_endpoint(
-    request: CustomTTSRequest, background_tasks: BackgroundTasks
+    request: CustomTTSRequest, background_tasks: BackgroundTasks, http_request: Request
 ):
     """
     Generates speech audio from text using specified parameters.
@@ -904,18 +966,22 @@ async def custom_tts_endpoint(
         else None
     )
 
-    encoded_audio_bytes = await _generate_audio_bytes_with_limits(
-        raw_text=request.text,
-        voice=request.voice,
-        speed=resolved_speed,
-        output_format=output_format_str,
-        target_sample_rate=get_audio_sample_rate(),
-        split_text=split_text_to_use,
-        chunk_size=chunk_size_to_use,
-        context_label="/tts",
-        text_options=request_text_options,
-        perf_monitor=perf_monitor,
-    )
+    try:
+        encoded_audio_bytes = await _generate_audio_bytes_with_limits(
+            http_request,
+            raw_text=request.text,
+            voice=request.voice,
+            speed=resolved_speed,
+            output_format=output_format_str,
+            target_sample_rate=get_audio_sample_rate(),
+            split_text=split_text_to_use,
+            chunk_size=chunk_size_to_use,
+            context_label="/tts",
+            text_options=request_text_options,
+            perf_monitor=perf_monitor,
+        )
+    except ClientDisconnectedError:
+        return Response(status_code=_CLIENT_CLOSED_REQUEST_STATUS)
 
     media_type = _media_type_for_format(output_format_str)
     timestamp_str = time.strftime("%Y%m%d_%H%M%S")
@@ -936,7 +1002,7 @@ async def custom_tts_endpoint(
 
 
 @app.post("/v1/audio/speech", tags=["OpenAI Compatible"])
-async def openai_speech_endpoint(request: OpenAISpeechRequest):
+async def openai_speech_endpoint(request: OpenAISpeechRequest, http_request: Request):
     """
     OpenAI-compatible TTS endpoint.
 
@@ -975,6 +1041,7 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
 
     try:
         encoded_audio = await _generate_audio_bytes_with_limits(
+            http_request,
             raw_text=request.input_,
             voice=request.voice,
             speed=request.speed,
@@ -995,6 +1062,8 @@ async def openai_speech_endpoint(request: OpenAISpeechRequest):
         logger.debug(perf_monitor.report())
         return StreamingResponse(io.BytesIO(encoded_audio), media_type=media_type)
 
+    except ClientDisconnectedError:
+        return Response(status_code=_CLIENT_CLOSED_REQUEST_STATUS)
     except HTTPException as http_exc:
         logger.error(
             "OpenAI speech request failed with HTTP %d: %s",
